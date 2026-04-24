@@ -25,9 +25,10 @@ type Account struct {
 }
 
 type FileData struct {
-	DefaultHeaders any       `json:"defaultHeaders"`
-	DefaultCookie  any       `json:"defaultCookie"`
-	Accounts       []Account `json:"accounts"`
+	DefaultHeaders       any                   `json:"defaultHeaders"`
+	DefaultCookie        any                   `json:"defaultCookie"`
+	Accounts             []Account             `json:"accounts"`
+	ConversationSessions []ConversationSession `json:"conversationSessions,omitempty"`
 }
 
 type AccountStore interface {

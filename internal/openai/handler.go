@@ -31,16 +31,18 @@ type Handler struct {
 	runtime  *config.Runtime
 	qwen     *qwen.Client
 	accounts *account.Service
+	sessions *ConversationSessionService
 	metrics  *metrics.DashboardStats
 	logger   *logging.Logger
 }
 
-func NewHandler(cfg config.Config, runtime *config.Runtime, qwenClient *qwen.Client, accounts *account.Service, stats *metrics.DashboardStats, logger *logging.Logger) *Handler {
+func NewHandler(cfg config.Config, runtime *config.Runtime, qwenClient *qwen.Client, accounts *account.Service, sessions *ConversationSessionService, stats *metrics.DashboardStats, logger *logging.Logger) *Handler {
 	return &Handler{
 		cfg:      cfg,
 		runtime:  runtime,
 		qwen:     qwenClient,
 		accounts: accounts,
+		sessions: sessions,
 		metrics:  stats,
 		logger:   logger,
 	}

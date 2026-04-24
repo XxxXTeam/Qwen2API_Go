@@ -358,6 +358,56 @@ func (s *Service) GetAccountSession() (storage.Account, error) {
 	return selected, nil
 }
 
+func (s *Service) GetAccountSessionByEmail(email string) (storage.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.initialized {
+		return storage.Account{}, errors.New("账户管理器尚未初始化")
+	}
+	for _, account := range s.availableLocked() {
+		if strings.EqualFold(account.Email, strings.TrimSpace(email)) {
+			s.lastUsed[account.Email] = time.Now()
+			return account, nil
+		}
+	}
+	return storage.Account{}, errors.New("指定账号当前不可用")
+}
+
+func (s *Service) GetAccountSessionExcluding(excluded map[string]struct{}) (storage.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.initialized {
+		return storage.Account{}, errors.New("账户管理器尚未初始化")
+	}
+	if len(s.accounts) == 0 {
+		return storage.Account{}, errors.New("没有可用的账户令牌")
+	}
+
+	filtered := make([]storage.Account, 0, len(s.accounts))
+	for _, account := range s.availableLocked() {
+		if _, ok := excluded[account.Email]; ok {
+			continue
+		}
+		filtered = append(filtered, account)
+	}
+	if len(filtered) == 0 {
+		return storage.Account{}, errors.New("没有符合条件的可用账户令牌")
+	}
+
+	selected := filtered[0]
+	selectedLastUsed := s.lastUsed[selected.Email]
+	for _, account := range filtered[1:] {
+		if s.lastUsed[account.Email].Before(selectedLastUsed) || selectedLastUsed.IsZero() {
+			selected = account
+			selectedLastUsed = s.lastUsed[account.Email]
+		}
+	}
+	s.lastUsed[selected.Email] = time.Now()
+	return selected, nil
+}
+
 func (s *Service) availableLocked() []storage.Account {
 	result := make([]storage.Account, 0, len(s.accounts))
 	now := time.Now()

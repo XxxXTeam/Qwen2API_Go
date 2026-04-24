@@ -39,19 +39,25 @@ func main() {
 		logger.ErrorModule("APP", "初始化账号存储失败: %v", err)
 		os.Exit(1)
 	}
+	conversationStore, err := storage.NewConversationStore(cfg)
+	if err != nil {
+		logger.ErrorModule("APP", "初始化会话存储失败: %v", err)
+		os.Exit(1)
+	}
 
 	keyring := auth.NewKeyring(cfg.APIKeys, cfg.AdminKey)
 	runtime := config.NewRuntime(cfg)
 	stats := metrics.NewDashboardStats()
 	qwenClient := qwen.NewClient(cfg, logger)
 	accountService := account.NewService(cfg, store, qwenClient, logger)
+	conversationSessions := openai.NewConversationSessionService(conversationStore, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	defer accountService.Close()
 
-	openAIHandler := openai.NewHandler(cfg, runtime, qwenClient, accountService, stats, logger)
+	openAIHandler := openai.NewHandler(cfg, runtime, qwenClient, accountService, conversationSessions, stats, logger)
 	adminHandler := admin.NewHandler(cfg, runtime, keyring, accountService, openAIHandler, stats, logger)
 	httpServer := server.New(cfg, keyring, openAIHandler, adminHandler, stats, logger)
 	serverErrCh := make(chan error, 1)

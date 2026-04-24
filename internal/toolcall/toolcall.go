@@ -435,6 +435,10 @@ func normalizeToolMessages(messages []map[string]any) []map[string]any {
 	return result
 }
 
+func NormalizeToolMessagesForExecution(messages []map[string]any) []map[string]any {
+	return normalizeToolMessages(messages)
+}
+
 func formatAssistantToolCalls(toolCalls []any) string {
 	blocks := make([]string, 0, len(toolCalls))
 	for _, raw := range toolCalls {
