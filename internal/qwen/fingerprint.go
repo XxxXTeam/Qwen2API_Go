@@ -71,8 +71,9 @@ var fingerprintBitness = []string{
 }
 
 var fingerprintEncodings = []string{
-	"gzip, deflate, br",
-	"gzip, deflate, br, zstd",
+	"gzip, deflate",
+	"deflate, gzip",
+	"gzip, deflate, identity",
 }
 
 var fingerprintPriorities = []string{
