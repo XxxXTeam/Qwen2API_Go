@@ -31,6 +31,19 @@ func TestNewRequestSetsAuthHeadersAndCookie(t *testing.T) {
 	if !strings.Contains(cookie, "ssxmod_itna=") || !strings.Contains(cookie, "ssxmod_itna2=") {
 		t.Fatalf("expected ssxmod cookies, got %q", cookie)
 	}
+	for _, header := range []string{
+		"sec-ch-ua-full-version",
+		"sec-ch-ua-full-version-list",
+		"sec-ch-ua-platform-version",
+		"sec-ch-ua-arch",
+		"sec-ch-ua-bitness",
+		"Priority",
+		"DNT",
+	} {
+		if req.Header.Get(header) == "" {
+			t.Fatalf("expected %s to be set", header)
+		}
+	}
 }
 
 func TestSignInRequestOmitsAuthorizationButKeepsCookie(t *testing.T) {

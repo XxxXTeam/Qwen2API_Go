@@ -84,20 +84,34 @@ func (c *Client) newRequestWithOptions(ctx context.Context, method, path string,
 		options.ContentType = "application/json"
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0")
+	fingerprint := fingerprintForToken(token)
+
+	req.Header.Set("User-Agent", fingerprint.UserAgent)
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Accept", options.Accept)
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+	req.Header.Set("Accept-Language", fingerprint.AcceptLanguage)
+	req.Header.Set("Accept-Encoding", fingerprint.AcceptEncoding)
 	if options.ContentType != "" {
 		req.Header.Set("Content-Type", options.ContentType)
 	}
-	req.Header.Set("Timezone", defaultTimezoneHeader)
-	req.Header.Set("sec-ch-ua", `"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
+	req.Header.Set("Timezone", fingerprint.Timezone)
+	req.Header.Set("sec-ch-ua", fingerprint.SecChUA)
+	req.Header.Set("sec-ch-ua-full-version", fingerprint.SecChUAFullVersion)
+	req.Header.Set("sec-ch-ua-full-version-list", fingerprint.SecChUAFullVersionList)
+	req.Header.Set("sec-ch-ua-platform", fingerprint.SecChUAPlatform)
+	req.Header.Set("sec-ch-ua-platform-version", fingerprint.SecChUAPlatformVersion)
+	req.Header.Set("sec-ch-ua-mobile", fingerprint.SecChUAMobile)
+	req.Header.Set("sec-ch-ua-arch", fingerprint.SecChUAArch)
+	req.Header.Set("sec-ch-ua-bitness", fingerprint.SecChUABitness)
 	req.Header.Set("Origin", c.baseURL)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Referer", c.baseURL+"/c/guest")
+	req.Header.Set("Cache-Control", fingerprint.CacheControl)
+	req.Header.Set("Pragma", fingerprint.Pragma)
+	req.Header.Set("Priority", fingerprint.Priority)
+	req.Header.Set("DNT", fingerprint.DNT)
 	req.Header.Set("source", "web")
 	req.Header.Set("Version", "0.1.13")
 	req.Header.Set("bx-v", "2.5.31")
