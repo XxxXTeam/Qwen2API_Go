@@ -57,3 +57,14 @@ func TestParseChatCompletionContentSupportsNestedJSONContent(t *testing.T) {
 		t.Fatalf("content = %q, want %q", content, "hello from nested payload")
 	}
 }
+
+func TestParseChatCompletionContentSupportsThinkingSummaryPhase(t *testing.T) {
+	raw := []byte("data: {\"choices\":[{\"delta\":{\"phase\":\"thinking_summary\",\"content\":\"\",\"extra\":{\"summary_title\":{\"content\":[\"回应用户的问候并主动提供帮助\"]},\"summary_thought\":{\"content\":[\"我感知到用户重复发送了简单的问候。\",\"我希望能为用户提供更有价值的协助。\"]}}}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{\"phase\":\"answer\",\"content\":\"你好\"}}]}\n\n")
+
+	content, _, _, _ := parseChatCompletionContent(raw)
+	want := "<think>\n\n回应用户的问候并主动提供帮助\n我感知到用户重复发送了简单的问候。\n我希望能为用户提供更有价值的协助。\n\n</think>\n你好"
+	if content != want {
+		t.Fatalf("content = %q, want %q", content, want)
+	}
+}

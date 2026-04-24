@@ -113,6 +113,9 @@ func isThinkingEnabled(model string, raw any) bool {
 	if strings.Contains(model, "-thinking") {
 		return true
 	}
+	if strings.Contains(model, "-fast") {
+		return false
+	}
 	switch v := raw.(type) {
 	case bool:
 		return v
@@ -126,8 +129,10 @@ func isThinkingEnabled(model string, raw any) bool {
 func splitModelSuffix(model string) string {
 	suffixes := []string{
 		"-thinking-search",
+		"-fast-search",
 		"-image-edit",
 		"-thinking",
+		"-fast",
 		"-search",
 		"-video",
 		"-image",
@@ -209,6 +214,70 @@ func (h *Handler) ResolveModel(ctx context.Context, requested string, chatType s
 	return base, nil
 }
 
+func buildFeatureConfig(thinkingEnabled bool) map[string]any {
+	config := map[string]any{
+		"thinking_enabled": thinkingEnabled,
+		"output_schema":    "phase",
+		"research_mode":    "normal",
+		"auto_thinking":    false,
+		"auto_search":      true,
+	}
+	if thinkingEnabled {
+		config["thinking_mode"] = "Thinking"
+		config["thinking_format"] = "summary"
+	} else {
+		config["thinking_mode"] = "Fast"
+	}
+	return config
+}
+
+func extractThinkingSummary(extra map[string]any) string {
+	if extra == nil {
+		return ""
+	}
+	joinContent := func(value any) string {
+		block, _ := value.(map[string]any)
+		if block == nil {
+			return ""
+		}
+		content, _ := block["content"].([]any)
+		if len(content) == 0 {
+			return ""
+		}
+		parts := make([]string, 0, len(content))
+		for _, item := range content {
+			text := strings.TrimSpace(fmt.Sprint(item))
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+
+	title := joinContent(extra["summary_title"])
+	thought := joinContent(extra["summary_thought"])
+	switch {
+	case title != "" && thought != "":
+		return title + "\n" + thought
+	case thought != "":
+		return thought
+	default:
+		return title
+	}
+}
+
+func extractDeltaContent(delta map[string]any) string {
+	if delta == nil {
+		return ""
+	}
+	content := fmt.Sprint(delta["content"])
+	if strings.TrimSpace(content) != "" {
+		return content
+	}
+	extra, _ := delta["extra"].(map[string]any)
+	return extractThinkingSummary(extra)
+}
+
 func normalizeMessages(messages []map[string]any, chatType string, thinkingEnabled bool) []map[string]any {
 	messages = mergeSystemMessages(messages)
 	if len(messages) == 0 {
@@ -249,7 +318,7 @@ func normalizeMessages(messages []map[string]any, chatType string, thinkingEnabl
 			"content":        normalized,
 			"chat_type":      chatType,
 			"extra":          map[string]any{},
-			"feature_config": map[string]any{"output_schema": "phase", "thinking_enabled": thinkingEnabled},
+			"feature_config": buildFeatureConfig(thinkingEnabled),
 		}}
 	}
 
@@ -281,7 +350,7 @@ func normalizeMessages(messages []map[string]any, chatType string, thinkingEnabl
 		"content":        lastContent,
 		"chat_type":      chatType,
 		"extra":          map[string]any{},
-		"feature_config": map[string]any{"output_schema": "phase", "thinking_enabled": thinkingEnabled},
+		"feature_config": buildFeatureConfig(thinkingEnabled),
 	}}
 }
 
@@ -490,16 +559,14 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	result := make([]map[string]any, 0)
 	for _, model := range models {
 		result = append(result, buildModelVariant(model, ""))
+		result = append(result, buildModelVariant(model, "-fast"))
+		result = append(result, buildModelVariant(model, "-thinking"))
 		if simple {
 			continue
 		}
-		if modelSupports(model.Info, "thinking") {
-			result = append(result, buildModelVariant(model, "-thinking"))
-		}
 		if modelSupports(model.Info, "search") {
 			result = append(result, buildModelVariant(model, "-search"))
-		}
-		if modelSupports(model.Info, "thinking") && modelSupports(model.Info, "search") {
+			result = append(result, buildModelVariant(model, "-fast-search"))
 			result = append(result, buildModelVariant(model, "-thinking-search"))
 		}
 		if modelSupports(model.Info, "t2i") {
@@ -523,11 +590,12 @@ func buildModelVariant(model qwen.Model, suffix string) map[string]any {
 	if displayName == "" {
 		displayName = model.ID
 	}
+	variantDisplayName := displayName + suffix
 	return map[string]any{
-		"id":           displayName + suffix,
+		"id":           variantDisplayName,
 		"name":         model.ID + suffix,
 		"upstream_id":  model.ID,
-		"display_name": displayName,
+		"display_name": variantDisplayName,
 	}
 }
 
@@ -604,12 +672,12 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 			continue
 		}
 
-		content := fmt.Sprint(delta["content"])
+		content := extractDeltaContent(delta)
 		phase := fmt.Sprint(delta["phase"])
 		if content == "" {
 			continue
 		}
-		if phase == "think" && !thinkingStarted {
+		if (phase == "think" || phase == "thinking_summary") && !thinkingStarted {
 			thinkingStarted = true
 			content = "<think>\n\n" + content
 		}
@@ -829,7 +897,7 @@ func parseChatCompletionContent(rawBody []byte) (string, int, int, int) {
 				continue
 			}
 			phase := extractChoicePhase(choice)
-			if phase == "think" && !thinkingStarted {
+			if (phase == "think" || phase == "thinking_summary") && !thinkingStarted {
 				thinkingStarted = true
 				content = "<think>\n\n" + content
 			}
@@ -881,10 +949,20 @@ func extractChoiceContent(choice map[string]any) string {
 		if content := extractStructuredContent(message["content"]); content != "" {
 			return content
 		}
+		if extra, ok := message["extra"].(map[string]any); ok {
+			if summary := extractThinkingSummary(extra); summary != "" {
+				return summary
+			}
+		}
 	}
 	if delta, ok := choice["delta"].(map[string]any); ok {
 		if content := extractStructuredContent(delta["content"]); content != "" {
 			return content
+		}
+		if extra, ok := delta["extra"].(map[string]any); ok {
+			if summary := extractThinkingSummary(extra); summary != "" {
+				return summary
+			}
 		}
 	}
 	return ""

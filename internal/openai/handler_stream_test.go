@@ -72,3 +72,31 @@ func TestHandleStreamDoesNotFragmentWhenNoTools(t *testing.T) {
 		t.Fatalf("second piece = %q", contentPieces[1])
 	}
 }
+
+func TestHandleStreamIncludesThinkingSummaryContent(t *testing.T) {
+	handler := &Handler{
+		cfg:     config.Config{},
+		metrics: metrics.NewDashboardStats(),
+		logger:  logging.New(false),
+	}
+
+	upstream := strings.Join([]string{
+		`data: {"choices":[{"delta":{"role":"assistant","content":"","phase":"thinking_summary","extra":{"summary_title":{"content":["回应用户的问候并主动提供帮助"]},"summary_thought":{"content":["我感知到用户重复发送了简单的问候。"]}}}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"role":"assistant","content":"你好","phase":"answer"}}]}`,
+		"",
+		`data: [DONE]`,
+		"",
+	}, "\n")
+
+	recorder := httptest.NewRecorder()
+	handler.handleStream(recorder, strings.NewReader(upstream), "qwen3.6-plus", nil)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "回应用户的问候并主动提供帮助") || !strings.Contains(body, "我感知到用户重复发送了简单的问候。") {
+		t.Fatalf("stream body missing thinking summary: %s", body)
+	}
+	if !strings.Contains(body, "\\u003c/think\\u003e\\n你好") {
+		t.Fatalf("stream body missing answer after think: %s", body)
+	}
+}
