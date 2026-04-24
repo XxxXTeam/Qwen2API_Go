@@ -38,6 +38,26 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 		}
 	}
 
+	withAnthropicKey := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			apiKey := auth.ExtractAPIKey(r)
+			result := keyring.Validate(apiKey)
+			if !result.IsValid {
+				logger.WarnModule("AUTH", "anthropic auth rejected request_id=%s path=%s method=%s remote=%s reason=invalid_api_key api_key=%s", requestIDFromContext(r), r.URL.Path, r.Method, clientIP(r), logger.Mask(apiKey))
+				writeJSON(w, http.StatusUnauthorized, map[string]any{
+					"type": "error",
+					"error": map[string]any{
+						"type":    "authentication_error",
+						"message": "Unauthorized",
+					},
+				})
+				return
+			}
+			logger.DebugModule("AUTH", "anthropic auth accepted request_id=%s path=%s method=%s admin=%t api_key=%s", requestIDFromContext(r), r.URL.Path, r.Method, result.IsAdmin, logger.Mask(apiKey))
+			next(w, r)
+		}
+	}
+
 	withAdminKey := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			apiKey := auth.ExtractAPIKey(r)
@@ -70,6 +90,8 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 	handle("/models", "models", ensureMethod(http.MethodGet, openAIHandler.HandleModels))
 	handle("/v1/models", "models", ensureMethod(http.MethodGet, withAnyKey(openAIHandler.HandleModels)))
 	handle("/v1/chat/completions", "chat", ensureMethod(http.MethodPost, withAnyKey(openAIHandler.HandleChatCompletion)))
+	handle("/v1/messages", "chat", ensureMethod(http.MethodPost, withAnthropicKey(openAIHandler.HandleAnthropicMessages)))
+	handle("/v1/messages/count_tokens", "chat", ensureMethod(http.MethodPost, withAnthropicKey(openAIHandler.HandleAnthropicCountTokens)))
 	handle("/v1/images/generations", "image", ensureMethod(http.MethodPost, withAnyKey(openAIHandler.HandleImagesGeneration)))
 	handle("/v1/images/edits", "image", ensureMethod(http.MethodPost, withAnyKey(openAIHandler.HandleImagesEdit)))
 	handle("/v1/videos", "video", ensureMethod(http.MethodPost, withAnyKey(openAIHandler.HandleVideos)))

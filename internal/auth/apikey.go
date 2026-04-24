@@ -42,10 +42,10 @@ func NewKeyring(apiKeys []string, adminKey string) *Keyring {
 }
 
 func ExtractAPIKey(r *http.Request) string {
-	if key := r.Header.Get("Authorization"); key != "" {
+	if key := r.Header.Get("x-api-key"); key != "" {
 		return key
 	}
-	if key := r.Header.Get("x-api-key"); key != "" {
+	if key := r.Header.Get("Authorization"); key != "" {
 		return key
 	}
 	return ""

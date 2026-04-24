@@ -7,6 +7,8 @@
 - OpenAI 兼容接口
   - `/v1/chat/completions`
   - `/v1/models`
+  - `/v1/messages`（Anthropic Messages 兼容）
+  - `/v1/messages/count_tokens`（Anthropic Count Tokens 兼容）
   - `/v1/images/generations`
   - `/v1/images/edits`
   - `/v1/videos`
@@ -150,6 +152,41 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 curl http://127.0.0.1:3000/v1/uploads \
   -H "Authorization: Bearer sk-admin-change-me" \
   -F "files=@demo.png"
+```
+
+### Anthropic Messages 兼容接口
+
+支持 `x-api-key` 和 `Authorization: Bearer ...` 两种鉴权方式。
+支持 `anthropic-version` 请求头，兼容常见日期格式版本值。
+
+```bash
+curl http://127.0.0.1:3000/v1/messages \
+  -H "x-api-key: sk-admin-change-me" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-235b-a22b",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "你好"}
+    ]
+  }'
+```
+
+Count tokens 示例：
+
+```bash
+curl http://127.0.0.1:3000/v1/messages/count_tokens \
+  -H "x-api-key: sk-admin-change-me" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-235b-a22b",
+    "system": "You are helpful",
+    "messages": [
+      {"role": "user", "content": "你好"}
+    ]
+  }'
 ```
 
 ## 常用配置说明

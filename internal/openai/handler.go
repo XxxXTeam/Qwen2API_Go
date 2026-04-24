@@ -535,72 +535,25 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
 		return
 	}
-
-	chatType := chatTypeForModel(payload.Model)
-	model, _ := h.ResolveModel(r.Context(), payload.Model, chatType)
-	thinkingEnabled := isThinkingEnabled(payload.Model, payload.EnableThinking)
-	injection := toolcall.InjectPrompt(payload.Messages, payload.Tools, payload.ToolChoice)
-	upstreamMessages := normalizeMessages(injection.Messages, chatType, thinkingEnabled)
-
-	session, err := h.accounts.GetAccountSession()
+	executed, status, err := h.executeChatRequest(r.Context(), executedChatRequest{
+		Model:          payload.Model,
+		Messages:       payload.Messages,
+		EnableThinking: payload.EnableThinking,
+		Tools:          payload.Tools,
+		ToolChoice:     payload.ToolChoice,
+		Size:           payload.Size,
+	})
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
-	upstreamMessages, err = h.uploadInlineMedia(r.Context(), session.Token, upstreamMessages)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
-	}
-
-	chatID, err := h.qwen.NewChat(r.Context(), session.Token, model)
-	if err != nil {
-		h.accounts.RecordFailure(session.Email)
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
-	}
-
-	body := map[string]any{
-		"stream":             true,
-		"incremental_output": true,
-		"chat_id":            chatID,
-		"chat_type":          chatType,
-		"model":              model,
-		"messages":           upstreamMessages,
-		"session_id":         fmt.Sprintf("%d", time.Now().UnixNano()),
-		"id":                 fmt.Sprintf("%d", time.Now().UnixNano()),
-		"sub_chat_type":      chatType,
-		"chat_mode":          "normal",
-	}
-	if payload.Size != "" {
-		body["size"] = payload.Size
-	}
-
-	resp, err := h.qwen.ChatCompletions(r.Context(), session.Token, chatID, body)
-	if err != nil {
-		h.accounts.RecordFailure(session.Email)
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
-	}
-	inspected, err := qwen.InspectUpstreamStream(r.Context(), resp.Body)
-	if err != nil {
-		h.accounts.RecordFailure(session.Email)
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
-	}
-	if inspected.UpstreamError != nil {
-		h.accounts.RecordFailure(session.Email)
-		writeJSON(w, inspected.UpstreamError.StatusCode, map[string]any{"error": inspected.UpstreamError.Error()})
-		return
-	}
-	defer inspected.Stream.Close()
-	h.accounts.ResetFailure(session.Email)
+	defer executed.Stream.Close()
 
 	if payload.Stream {
-		h.handleStream(w, inspected.Stream, model, injection.ToolNames)
+		h.handleStream(w, executed.Stream, executed.Model, executed.ToolNames)
 		return
 	}
-	h.handleNonStream(w, inspected.Stream, model, injection.ToolNames)
+	h.handleNonStream(w, executed.Stream, executed.Model, executed.ToolNames)
 }
 
 func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
@@ -772,13 +725,12 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 }
 
 func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
-	rawBody, err := io.ReadAll(body)
+	result, upstreamErr, err := h.readCompletedChat(body, model, toolNames)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "读取上游响应失败"})
 		return
 	}
-	h.logger.DebugModule("OPENAI", "non-stream upstream raw response model=%s body=%s", model, string(rawBody))
-	if upstreamErr := parseAssetError(rawBody); upstreamErr != nil {
+	if upstreamErr != nil {
 		status := upstreamErr.StatusCode
 		if status <= 0 {
 			status = http.StatusBadGateway
@@ -787,29 +739,17 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 		return
 	}
 
-	fullContent, promptTokens, completionTokens, totalTokens := parseChatCompletionContent(rawBody)
-	parsedCalls := []toolcall.ToolCall(nil)
-	normalizedContent := fullContent
-	if len(toolNames) > 0 {
-		parsedCalls = toolcall.ParseCalls(fullContent)
-		if len(parsedCalls) > 0 {
-			normalizedContent = toolcall.RemoveMarkup(fullContent)
-		}
-	}
-
-	h.metrics.RecordUsage(promptTokens, completionTokens, totalTokens)
 	message := map[string]any{
 		"role":    "assistant",
-		"content": strings.TrimSpace(normalizedContent),
+		"content": result.Content,
 	}
-	finishReason := "stop"
-	if len(parsedCalls) > 0 {
-		finishReason = "tool_calls"
-		if strings.TrimSpace(normalizedContent) == "" {
+	if len(result.ToolCalls) > 0 {
+		if result.Content == "" {
 			message["content"] = nil
 		}
-		message["tool_calls"] = toolcall.FormatOpenAIToolCalls(parsedCalls)
+		message["tool_calls"] = toolcall.FormatOpenAIToolCalls(result.ToolCalls)
 	}
+	h.metrics.RecordUsage(result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),
 		"object":  "chat.completion",
@@ -818,12 +758,12 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 		"choices": []map[string]any{{
 			"index":         0,
 			"message":       message,
-			"finish_reason": finishReason,
+			"finish_reason": result.FinishReason,
 		}},
 		"usage": map[string]any{
-			"prompt_tokens":     promptTokens,
-			"completion_tokens": completionTokens,
-			"total_tokens":      totalTokens,
+			"prompt_tokens":     result.PromptTokens,
+			"completion_tokens": result.CompletionTokens,
+			"total_tokens":      result.TotalTokens,
 		},
 	})
 }
