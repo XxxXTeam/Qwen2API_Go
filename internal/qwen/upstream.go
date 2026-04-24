@@ -221,12 +221,18 @@ func normalizeUpstreamError(payload map[string]any) *UpstreamError {
 
 	code := toString(rawError["code"])
 	details := fallbackString(toString(rawError["details"]), toString(rawError["message"]), toString(payload["message"]))
+	status := http.StatusBadGateway
+	if isRetryableUpstreamError(code, details) && (strings.Contains(strings.ToLower(details), "quota") || strings.Contains(strings.ToLower(details), "token-limit")) {
+		status = http.StatusTooManyRequests
+	} else if strings.Contains(strings.ToLower(details), "overload") || strings.Contains(strings.ToLower(details), "temporarily unavailable") {
+		status = http.StatusServiceUnavailable
+	}
 	return &UpstreamError{
 		Code:       code,
 		Message:    toString(rawError["message"]),
 		Details:    details,
 		ResponseID: fallbackString(toString(payload["response_id"]), toString(nestedValue(payload, "response", "id"))),
-		StatusCode: http.StatusBadGateway,
+		StatusCode: status,
 		Retryable:  isRetryableUpstreamError(code, details),
 	}
 }

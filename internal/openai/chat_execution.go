@@ -41,64 +41,90 @@ func (h *Handler) executeChatRequest(ctx context.Context, payload executedChatRe
 	model, _ := h.ResolveModel(ctx, payload.Model, chatType)
 	thinkingEnabled := isThinkingEnabled(payload.Model, payload.EnableThinking)
 	injection := toolcall.InjectPrompt(payload.Messages, payload.Tools, payload.ToolChoice)
-	upstreamMessages := normalizeMessages(injection.Messages, chatType, thinkingEnabled)
-
-	session, err := h.accounts.GetAccountSession()
-	if err != nil {
-		return nil, http.StatusBadGateway, err
-	}
-	upstreamMessages, err = h.uploadInlineMedia(ctx, session.Token, upstreamMessages)
-	if err != nil {
-		return nil, http.StatusBadGateway, err
+	baseMessages := normalizeMessages(injection.Messages, chatType, thinkingEnabled)
+	maxAttempts := len(h.accounts.Accounts())
+	if maxAttempts <= 0 {
+		maxAttempts = 1
 	}
 
-	chatID, err := h.qwen.NewChat(ctx, session.Token, model)
-	if err != nil {
-		h.accounts.RecordFailure(session.Email)
-		return nil, http.StatusBadGateway, err
-	}
-
-	body := map[string]any{
-		"stream":             true,
-		"incremental_output": true,
-		"chat_id":            chatID,
-		"chat_type":          chatType,
-		"model":              model,
-		"messages":           upstreamMessages,
-		"session_id":         fmt.Sprintf("%d", time.Now().UnixNano()),
-		"id":                 fmt.Sprintf("%d", time.Now().UnixNano()),
-		"sub_chat_type":      chatType,
-		"chat_mode":          "normal",
-	}
-	if payload.Size != "" {
-		body["size"] = payload.Size
-	}
-
-	resp, err := h.qwen.ChatCompletions(ctx, session.Token, chatID, body)
-	if err != nil {
-		h.accounts.RecordFailure(session.Email)
-		return nil, http.StatusBadGateway, err
-	}
-	inspected, err := qwen.InspectUpstreamStream(ctx, resp.Body)
-	if err != nil {
-		h.accounts.RecordFailure(session.Email)
-		return nil, http.StatusBadGateway, err
-	}
-	if inspected.UpstreamError != nil {
-		h.accounts.RecordFailure(session.Email)
-		status := inspected.UpstreamError.StatusCode
-		if status <= 0 {
-			status = http.StatusBadGateway
+	var lastErr error
+	lastStatus := http.StatusBadGateway
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		session, err := h.accounts.GetAccountSession()
+		if err != nil {
+			return nil, http.StatusBadGateway, err
 		}
-		return nil, status, inspected.UpstreamError
+
+		upstreamMessages, err := h.uploadInlineMedia(ctx, session.Token, cloneMessageList(baseMessages))
+		if err != nil {
+			return nil, http.StatusBadGateway, err
+		}
+
+		chatID, err := h.qwen.NewChat(ctx, session.Token, model)
+		if err != nil {
+			h.accounts.RecordFailure(session.Email)
+			lastErr = err
+			lastStatus = http.StatusBadGateway
+			continue
+		}
+
+		body := map[string]any{
+			"stream":             true,
+			"incremental_output": true,
+			"chat_id":            chatID,
+			"chat_type":          chatType,
+			"model":              model,
+			"messages":           upstreamMessages,
+			"session_id":         fmt.Sprintf("%d", time.Now().UnixNano()),
+			"id":                 fmt.Sprintf("%d", time.Now().UnixNano()),
+			"sub_chat_type":      chatType,
+			"chat_mode":          "normal",
+		}
+		if payload.Size != "" {
+			body["size"] = payload.Size
+		}
+
+		resp, err := h.qwen.ChatCompletions(ctx, session.Token, chatID, body)
+		if err != nil {
+			h.accounts.RecordFailure(session.Email)
+			lastErr = err
+			lastStatus = http.StatusBadGateway
+			continue
+		}
+		inspected, err := qwen.InspectUpstreamStream(ctx, resp.Body)
+		if err != nil {
+			h.accounts.RecordFailure(session.Email)
+			lastErr = err
+			lastStatus = http.StatusBadGateway
+			continue
+		}
+		if inspected.UpstreamError != nil {
+			h.accounts.RecordFailure(session.Email)
+			status := inspected.UpstreamError.StatusCode
+			if status <= 0 {
+				status = http.StatusBadGateway
+			}
+			lastErr = inspected.UpstreamError
+			lastStatus = status
+			if inspected.UpstreamError.Retryable && attempt < maxAttempts-1 {
+				h.logger.WarnModule("OPENAI", "chat upstream retryable error model=%s account=%s attempt=%d/%d status=%d err=%v", model, session.Email, attempt+1, maxAttempts, status, inspected.UpstreamError)
+				continue
+			}
+			return nil, status, inspected.UpstreamError
+		}
+
+		h.accounts.ResetFailure(session.Email)
+		return &executedChat{
+			Model:     model,
+			ToolNames: injection.ToolNames,
+			Stream:    inspected.Stream,
+		}, http.StatusOK, nil
 	}
 
-	h.accounts.ResetFailure(session.Email)
-	return &executedChat{
-		Model:     model,
-		ToolNames: injection.ToolNames,
-		Stream:    inspected.Stream,
-	}, http.StatusOK, nil
+	if lastErr == nil {
+		lastErr = fmt.Errorf("上游聊天请求失败")
+	}
+	return nil, lastStatus, lastErr
 }
 
 func (h *Handler) readCompletedChat(body io.Reader, model string, toolNames []string) (completedChat, *qwen.UpstreamError, error) {
@@ -112,14 +138,21 @@ func (h *Handler) readCompletedChat(body io.Reader, model string, toolNames []st
 	}
 
 	fullContent, promptTokens, completionTokens, totalTokens := parseChatCompletionContent(rawBody)
+	h.logger.DebugModule("OPENAI", "non-stream parsed model=%s full_content=%q usage=%s", model, fullContent, debugJSON(map[string]any{
+		"prompt_tokens":     promptTokens,
+		"completion_tokens": completionTokens,
+		"total_tokens":      totalTokens,
+	}))
 	parsedCalls := []toolcall.ToolCall(nil)
 	normalizedContent := fullContent
 	if len(toolNames) > 0 {
 		parsedCalls = toolcall.ParseCalls(fullContent)
 		if len(parsedCalls) > 0 {
-			normalizedContent = cleanupToolMarkup(toolcall.RemoveMarkup(fullContent))
+			normalizedContent = toolcall.CleanVisibleText(fullContent)
 		}
 	}
+	normalizedContent = toolcall.CleanVisibleText(normalizedContent)
+	h.logger.DebugModule("OPENAI", "non-stream normalized model=%s normalized_content=%q parsed_tool_calls=%s", model, normalizedContent, debugJSON(parsedCalls))
 
 	finishReason := "stop"
 	if len(parsedCalls) > 0 {

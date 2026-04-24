@@ -462,8 +462,9 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 		}
 
 		chunkResult := toolcall.ProcessStreamChunk(streamState, content)
-		if chunkResult.Content != "" && !shouldSkipAnthropicTextChunk(chunkResult.Content) {
-			emitAnthropicTextDelta(w, &anthropicState, chunkResult.Content)
+		visibleContent := toolcall.CleanVisibleChunk(chunkResult.Content)
+		if visibleContent != "" && !shouldSkipAnthropicTextChunk(visibleContent) {
+			emitAnthropicTextDelta(w, &anthropicState, visibleContent)
 		}
 		if len(chunkResult.ToolCalls) > 0 {
 			toolCallsSent = true
@@ -479,9 +480,10 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 	}
 
 	finalResult := toolcall.FinalizeStream(streamState)
-	if finalResult.Content != "" && !shouldSkipAnthropicTextChunk(finalResult.Content) {
+	finalVisibleContent := toolcall.CleanVisibleChunk(finalResult.Content)
+	if finalVisibleContent != "" && !shouldSkipAnthropicTextChunk(finalVisibleContent) {
 		ensureAnthropicMessageStart(w, &anthropicState, model, promptTokens)
-		emitAnthropicTextDelta(w, &anthropicState, finalResult.Content)
+		emitAnthropicTextDelta(w, &anthropicState, finalVisibleContent)
 	}
 	if len(finalResult.ToolCalls) > 0 {
 		ensureAnthropicMessageStart(w, &anthropicState, model, promptTokens)

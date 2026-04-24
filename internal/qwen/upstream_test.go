@@ -78,6 +78,25 @@ func TestInspectUpstreamStreamKeepsToolPreludeBuffered(t *testing.T) {
 	}
 }
 
+func TestNormalizeUpstreamErrorMapsDirectQuotaErrorTo429(t *testing.T) {
+	payload := map[string]any{
+		"error": map[string]any{
+			"message": "Allocated quota exceeded, please increase your quota limit. For details, see: https://www.alibabacloud.com/help/en/model-studio/error-code#token-limit",
+		},
+	}
+
+	result := NormalizeUpstreamError(payload)
+	if result == nil {
+		t.Fatal("expected upstream error, got nil")
+	}
+	if result.StatusCode != 429 {
+		t.Fatalf("expected status 429, got %d", result.StatusCode)
+	}
+	if !result.Retryable {
+		t.Fatal("expected retryable=true")
+	}
+}
+
 func TestInspectUpstreamStreamIgnoresNonJSONPrelude(t *testing.T) {
 	input := "event: ping\n\n" +
 		`data: {"choices":[{"delta":{"content":"hello"}}]}` + "\n\n"

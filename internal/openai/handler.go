@@ -572,10 +572,12 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+		h.logger.DebugModule("OPENAI", "stream raw line model=%s line=%q", model, line)
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		h.logger.DebugModule("OPENAI", "stream raw payload model=%s payload=%q", model, payload)
 		if payload == "" || payload == "[DONE]" {
 			continue
 		}
@@ -613,10 +615,13 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 			thinkingEnded = true
 			content = "\n\n</think>\n" + content
 		}
+		h.logger.DebugModule("OPENAI", "stream delta model=%s phase=%s content=%q", model, phase, content)
 		if len(toolNames) > 0 {
 			chunkResult := toolcall.ProcessStreamChunk(streamState, content)
+			h.logger.DebugModule("OPENAI", "stream tool sieve model=%s input=%q raw_visible=%q tool_calls=%s", model, content, chunkResult.Content, debugJSON(chunkResult.ToolCalls))
 			if len(chunkResult.ToolCalls) > 0 {
 				toolCallsSent = true
+				h.logger.DebugModule("OPENAI", "stream emit tool calls model=%s tool_calls=%s", model, debugJSON(toolcall.FormatOpenAIToolCalls(chunkResult.ToolCalls)))
 				writeSSE(w, map[string]any{
 					"id":      messageID,
 					"object":  "chat.completion.chunk",
@@ -631,11 +636,13 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 					}},
 				})
 			}
-			content = chunkResult.Content
+			content = toolcall.CleanVisibleChunk(chunkResult.Content)
+			h.logger.DebugModule("OPENAI", "stream cleaned visible model=%s cleaned=%q", model, content)
 		}
 		contentBuilder.WriteString(content)
 
 		if content != "" {
+			h.logger.DebugModule("OPENAI", "stream emit content model=%s content=%q", model, content)
 			writeSSE(w, map[string]any{
 				"id":      messageID,
 				"object":  "chat.completion.chunk",
@@ -655,8 +662,12 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 
 	if len(toolNames) > 0 {
 		finalResult := toolcall.FinalizeStream(streamState)
-		if strings.TrimSpace(finalResult.Content) != "" {
-			contentBuilder.WriteString(finalResult.Content)
+		h.logger.DebugModule("OPENAI", "stream final sieve model=%s raw_visible=%q tool_calls=%s", model, finalResult.Content, debugJSON(finalResult.ToolCalls))
+		finalContent := toolcall.CleanVisibleChunk(finalResult.Content)
+		h.logger.DebugModule("OPENAI", "stream final cleaned model=%s cleaned=%q", model, finalContent)
+		if strings.TrimSpace(finalContent) != "" {
+			contentBuilder.WriteString(finalContent)
+			h.logger.DebugModule("OPENAI", "stream emit final content model=%s content=%q", model, finalContent)
 			writeSSE(w, map[string]any{
 				"id":      messageID,
 				"object":  "chat.completion.chunk",
@@ -664,7 +675,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 				"model":   model,
 				"choices": []map[string]any{{
 					"index":         0,
-					"delta":         map[string]any{"content": finalResult.Content},
+					"delta":         map[string]any{"content": finalContent},
 					"finish_reason": nil,
 				}},
 			})
@@ -674,6 +685,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 		}
 		if len(finalResult.ToolCalls) > 0 {
 			toolCallsSent = true
+			h.logger.DebugModule("OPENAI", "stream emit final tool calls model=%s tool_calls=%s", model, debugJSON(toolcall.FormatOpenAIToolCalls(finalResult.ToolCalls)))
 			writeSSE(w, map[string]any{
 				"id":      messageID,
 				"object":  "chat.completion.chunk",
@@ -722,6 +734,16 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 	})
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	h.metrics.RecordUsage(promptTokens, completionTokens, totalTokens)
+	h.logger.DebugModule("OPENAI", "stream completed model=%s final_content=%q finish_reason=%s usage=%s", model, contentBuilder.String(), func() string {
+		if toolCallsSent {
+			return "tool_calls"
+		}
+		return "stop"
+	}(), debugJSON(map[string]any{
+		"prompt_tokens":     promptTokens,
+		"completion_tokens": completionTokens,
+		"total_tokens":      totalTokens,
+	}))
 }
 
 func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
@@ -749,6 +771,11 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 		}
 		message["tool_calls"] = toolcall.FormatOpenAIToolCalls(result.ToolCalls)
 	}
+	h.logger.DebugModule("OPENAI", "non-stream response model=%s content=%q tool_calls=%s finish_reason=%s usage=%s", model, result.Content, debugJSON(result.ToolCalls), result.FinishReason, debugJSON(map[string]any{
+		"prompt_tokens":     result.PromptTokens,
+		"completion_tokens": result.CompletionTokens,
+		"total_tokens":      result.TotalTokens,
+	}))
 	h.metrics.RecordUsage(result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),
@@ -989,6 +1016,14 @@ func setSSEHeaders(w http.ResponseWriter) {
 func writeSSE(w http.ResponseWriter, payload any) {
 	raw, _ := json.Marshal(payload)
 	_, _ = io.WriteString(w, "data: "+string(raw)+"\n\n")
+}
+
+func debugJSON(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	return string(raw)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

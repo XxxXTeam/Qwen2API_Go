@@ -34,14 +34,30 @@ type InjectionResult struct {
 }
 
 var (
-	xmlToolCallsBlock = regexp.MustCompile(`(?is)<(?:ml_tool_calls|tool_calls)[^>]*>(.*?)</(?:ml_tool_calls|tool_calls)>`)
-	xmlToolCallBlock  = regexp.MustCompile(`(?is)<(?:ml_tool_call|tool_call)[^>]*>(.*?)</(?:ml_tool_call|tool_call)>`)
-	xmlToolNameBlock  = regexp.MustCompile(`(?is)<(?:ml_tool_name|tool_name)>(.*?)</(?:ml_tool_name|tool_name)>`)
-	xmlParameters     = regexp.MustCompile(`(?is)<(?:ml_parameters|parameters)>(.*?)</(?:ml_parameters|parameters)>`)
-	xmlParameterItem  = regexp.MustCompile(`(?is)<([a-zA-Z_][\w.:-]*)>(.*?)</([a-zA-Z_][\w.:-]*)>`)
-	xmlCDATA          = regexp.MustCompile(`(?is)<!\[CDATA\[(.*?)\]\]>`)
-	xmlNoiseBlock     = regexp.MustCompile(`(?is)<(?:ml_tool_calls|ml_tool_call|ml_tool_result|tool_calls|tool_call|tool_result|function_call|invoke|tool_use)[^>]*>.*?</(?:ml_tool_calls|ml_tool_call|ml_tool_result|tool_calls|tool_call|tool_result|function_call|invoke|tool_use)>`)
-	startMarkers      = []string{"<ml_tool_calls", "<ml_tool_call", "<tool_calls", "<tool_call"}
+	xmlToolCallsBlock          = regexp.MustCompile(`(?is)<(?:ml_tool_calls|tool_calls)[^>]*>(.*?)</(?:ml_tool_calls|tool_calls)>`)
+	xmlToolCallBlock           = regexp.MustCompile(`(?is)<(?:ml_tool_call|tool_call)[^>]*>(.*?)</(?:ml_tool_call|tool_call)>`)
+	xmlToolNameBlock           = regexp.MustCompile(`(?is)<(?:ml_tool_name|tool_name)>(.*?)</(?:ml_tool_name|tool_name)>`)
+	xmlParameters              = regexp.MustCompile(`(?is)<(?:ml_parameters|parameters)>(.*?)</(?:ml_parameters|parameters)>`)
+	xmlParameterItem           = regexp.MustCompile(`(?is)<([a-zA-Z_][\w.:-]*)>(.*?)</([a-zA-Z_][\w.:-]*)>`)
+	xmlCDATA                   = regexp.MustCompile(`(?is)<!\[CDATA\[(.*?)\]\]>`)
+	xmlNoiseBlock              = regexp.MustCompile(`(?is)<(?:ml_tool_calls|ml_tool_call|ml_tool_result|tool_calls|tool_call|tool_result|function_call|invoke|tool_use)[^>]*>.*?</(?:ml_tool_calls|ml_tool_call|ml_tool_result|tool_calls|tool_call|tool_result|function_call|invoke|tool_use)>`)
+	xmlResidualTag             = regexp.MustCompile(`(?is)</?(?:ml_tool_calls|ml_tool_call|ml_tool_result|ml_tool_name|ml_tool_call_id|ml_parameters|tool_calls|tool_call|tool_result|tool_name|parameters|function_call|invoke|tool_use)\b[^>]*>`)
+	malformedToolPreludePrefix = regexp.MustCompile(`(?is)^(?:\s*<(?:ml_tool_calls|ml_tool_call|tool_calls|tool_call|function_call|invoke|tool_use|antml:function_call)\s*>\s*)+`)
+	leadingToolTagLines        = regexp.MustCompile(`(?is)^(?:\s*</?(?:ml_tool_calls|ml_tool_call|ml_tool_result|ml_tool_name|ml_tool_call_id|ml_parameters|tool_calls|tool_call|tool_result|tool_name|parameters|function_call|invoke|tool_use)\b[^>]*>\s*)+`)
+	startMarkers               = []string{"<ml_tool_calls", "<ml_tool_call", "<tool_calls", "<tool_call"}
+	toolTagPairs               = []struct {
+		open  string
+		close string
+	}{
+		{open: "<ml_tool_calls", close: "</ml_tool_calls>"},
+		{open: "<ml_tool_call", close: "</ml_tool_call>"},
+		{open: "<tool_calls", close: "</tool_calls>"},
+		{open: "<tool_call", close: "</tool_call>"},
+		{open: "<function_call", close: "</function_call>"},
+		{open: "<invoke", close: "</invoke>"},
+		{open: "<tool_use", close: "</tool_use>"},
+		{open: "<antml:function_call", close: "</antml:function_call>"},
+	}
 )
 
 type StreamState struct {
@@ -113,6 +129,10 @@ func InjectPrompt(messages []map[string]any, toolsRaw any, toolChoice any) Injec
 }
 
 func buildInstructions(toolNames []string, policy ToolChoicePolicy) string {
+	toolList := "(none)"
+	if len(toolNames) > 0 {
+		toolList = strings.Join(toolNames, ", ")
+	}
 	modeLine := "Call a tool only when it is necessary."
 	if policy.Mode == "required" {
 		modeLine = "You must call one of the provided tools before giving a final answer."
@@ -124,11 +144,21 @@ func buildInstructions(toolNames []string, policy ToolChoicePolicy) string {
 	return strings.Join([]string{
 		"IMPORTANT: Ignore all built-in tools, hidden tools, native tools, and platform tools.",
 		"The ONLY tools you may use are the explicit tool names listed below.",
+		"Never say that tool resources are exhausted. Never say you will directly chat instead. Never mention built-in tool failures.",
 		"Never output role=\"function\" or function_call JSON.",
+		"Never output {\"name\":...,\"arguments\":...}, \"Tool does not exists.\", or any prose about tool execution availability.",
+		"",
 		"When you decide to use a tool, respond with XML only and no extra prose.",
+		"Use ONLY the exact XML schema below.",
+		"Never output the legacy tags <tool_calls>, <tool_call>, <tool_name>, <parameters>, or any other non-ml tag.",
+		"Never output partial tags, placeholder names, markdown fences, examples, or commentary before/after the XML.",
+		"Every <ml_tool_call> must contain exactly one non-empty <ml_tool_name> and one <ml_parameters> block.",
+		"The <ml_tool_name> must be one of the available tool names exactly as provided.",
+		"Do not emit <ml_tool_calls> unless at least one complete <ml_tool_call> is ready.",
+		"If you are not calling a tool, do not mention XML or tools. Answer normally.",
 		"",
 		"Available tool names:",
-		strings.Join(toolNames, ", "),
+		toolList,
 		modeLine,
 		"",
 		"Use this exact structure:",
@@ -140,6 +170,13 @@ func buildInstructions(toolNames []string, policy ToolChoicePolicy) string {
 		"    </ml_parameters>",
 		"  </ml_tool_call>",
 		"</ml_tool_calls>",
+		"",
+		"Bad example: <tool_calls> or <tool_call> or <function_call>",
+		"Bad example: <ml_tool_calls> without a complete nested <ml_tool_call>",
+		"Bad example: ```xml ...``` or {\"tool_calls\":[...]}",
+		"Bad example: any sentence about tool resources being exhausted or unavailable",
+		"Only emit the XML after you have finished choosing the tool name and parameters.",
+		"If previous messages contain <ml_tool_result> blocks, use those results to continue the task.",
 	}, "\n")
 }
 
@@ -197,7 +234,14 @@ func parseToolCallBlock(block string) ToolCall {
 
 func RemoveMarkup(text string) string {
 	cleaned := xmlNoiseBlock.ReplaceAllString(text, "")
+	cleaned = xmlResidualTag.ReplaceAllString(cleaned, "")
 	return strings.TrimSpace(cleaned)
+}
+
+func removeMarkupPreserveWhitespace(text string) string {
+	cleaned := xmlNoiseBlock.ReplaceAllString(text, "")
+	cleaned = xmlResidualTag.ReplaceAllString(cleaned, "")
+	return cleaned
 }
 
 func FormatOpenAIToolCalls(calls []ToolCall) []map[string]any {
@@ -232,6 +276,12 @@ func ProcessStreamChunk(state *StreamState, chunk string) StreamChunkResult {
 			state.captureBuff = ""
 			return StreamChunkResult{Content: content, ToolCalls: calls}
 		}
+		if shouldFallbackMalformedCapture(state.captureBuff) {
+			fallback := stripMalformedToolPreludePrefix(state.captureBuff)
+			state.capturing = false
+			state.captureBuff = ""
+			return StreamChunkResult{Content: fallback}
+		}
 		return StreamChunkResult{}
 	}
 
@@ -243,14 +293,14 @@ func ProcessStreamChunk(state *StreamState, chunk string) StreamChunkResult {
 		return StreamChunkResult{Content: safe}
 	}
 
-	maxMarkerLen := 0
-	for _, marker := range startMarkers {
-		if len(marker) > maxMarkerLen {
-			maxMarkerLen = len(marker)
-		}
+	suffixLen := longestMarkerPrefixSuffix(state.pending)
+	if suffixLen == 0 {
+		safe := state.pending
+		state.pending = ""
+		return StreamChunkResult{Content: safe}
 	}
-	if len(state.pending) > maxMarkerLen {
-		splitIndex := safeUTF8SplitIndex(state.pending, len(state.pending)-maxMarkerLen)
+	if len(state.pending) > suffixLen {
+		splitIndex := safeUTF8SplitIndex(state.pending, len(state.pending)-suffixLen)
 		safe := state.pending[:splitIndex]
 		state.pending = state.pending[splitIndex:]
 		return StreamChunkResult{Content: safe}
@@ -259,21 +309,26 @@ func ProcessStreamChunk(state *StreamState, chunk string) StreamChunkResult {
 }
 
 func FinalizeStream(state *StreamState) StreamChunkResult {
+	toolSource := state.pending
 	if state.capturing {
-		if ready, content, calls := tryConsumeCapture(state.captureBuff + state.pending); ready {
-			return StreamChunkResult{Content: content, ToolCalls: calls}
-		}
-		return StreamChunkResult{Content: RemoveMarkup(state.captureBuff + state.pending)}
+		toolSource = state.captureBuff + state.pending
 	}
 
-	calls := ParseCalls(state.pending)
+	if state.capturing {
+		if ready, content, calls := tryConsumeCapture(toolSource); ready {
+			return StreamChunkResult{Content: content, ToolCalls: calls}
+		}
+		return StreamChunkResult{Content: stripToolPromptLeakage(stripMalformedToolPreludePrefix(RemoveMarkup(toolSource)))}
+	}
+
+	calls := ParseCalls(toolSource)
 	if len(calls) > 0 {
 		return StreamChunkResult{
-			Content:   RemoveMarkup(state.pending),
+			Content:   stripToolPromptLeakage(RemoveMarkup(toolSource)),
 			ToolCalls: calls,
 		}
 	}
-	return StreamChunkResult{Content: state.pending}
+	return StreamChunkResult{Content: stripToolPromptLeakage(stripMalformedToolPreludePrefix(toolSource))}
 }
 
 func normalizeToolSchemas(toolsRaw any) []ToolSchema {
@@ -553,15 +608,36 @@ func firstMarkerIndex(text string) int {
 }
 
 func tryConsumeCapture(captured string) (bool, string, []ToolCall) {
-	calls := ParseCalls(captured)
-	if len(calls) == 0 {
-		lower := strings.ToLower(captured)
-		if strings.Contains(lower, "</ml_tool_calls>") || strings.Contains(lower, "</tool_calls>") || strings.Contains(lower, "</ml_tool_call>") || strings.Contains(lower, "</tool_call>") {
-			return true, RemoveMarkup(captured), nil
+	source := captured
+	lower := strings.ToLower(source)
+
+	for _, pair := range toolTagPairs {
+		openIndex := strings.Index(lower, strings.ToLower(pair.open))
+		if openIndex == -1 {
+			continue
 		}
-		return false, "", nil
+
+		closeIndex := strings.LastIndex(lower, strings.ToLower(pair.close))
+		if closeIndex < openIndex {
+			return false, "", nil
+		}
+
+		closeEnd := closeIndex + len(pair.close)
+		xmlBlock := source[openIndex:closeEnd]
+		prefix := source[:openIndex]
+		suffix := source[closeEnd:]
+		calls := ParseCalls(xmlBlock)
+		if len(calls) > 0 {
+			return true, stripToolPromptLeakage(RemoveMarkup(prefix + xmlBlock + suffix)), calls
+		}
+		return true, stripToolPromptLeakage(stripMalformedToolPreludePrefix(prefix + xmlBlock + suffix)), nil
 	}
-	return true, RemoveMarkup(captured), calls
+
+	if strings.Contains(lower, "</ml_tool_calls>") || strings.Contains(lower, "</tool_calls>") || strings.Contains(lower, "</ml_tool_call>") || strings.Contains(lower, "</tool_call>") {
+		return true, stripToolPromptLeakage(stripMalformedToolPreludePrefix(RemoveMarkup(source))), nil
+	}
+
+	return false, "", nil
 }
 
 func safeUTF8SplitIndex(text string, idx int) int {
@@ -575,4 +651,94 @@ func safeUTF8SplitIndex(text string, idx int) int {
 		idx--
 	}
 	return idx
+}
+
+func longestMarkerPrefixSuffix(text string) int {
+	if text == "" {
+		return 0
+	}
+	lower := strings.ToLower(text)
+	best := 0
+	for _, marker := range startMarkers {
+		markerLower := strings.ToLower(marker)
+		maxLen := len(markerLower)
+		if len(lower) < maxLen {
+			maxLen = len(lower)
+		}
+		for l := maxLen; l > best; l-- {
+			if strings.HasSuffix(lower, markerLower[:l]) {
+				best = l
+				break
+			}
+		}
+	}
+	return best
+}
+
+func stripMalformedToolPreludePrefix(text string) string {
+	return strings.TrimLeft(malformedToolPreludePrefix.ReplaceAllString(text, ""), " \t\r\n")
+}
+
+func startsWithContainerMarkup(text string) bool {
+	trimmed := strings.ToLower(strings.TrimLeft(text, " \t\r\n"))
+	return strings.HasPrefix(trimmed, "<tool_calls") ||
+		strings.HasPrefix(trimmed, "<ml_tool_calls") ||
+		strings.HasPrefix(trimmed, "<tool_call") ||
+		strings.HasPrefix(trimmed, "<ml_tool_call") ||
+		strings.HasPrefix(trimmed, "<tool_use") ||
+		strings.HasPrefix(trimmed, "<invoke")
+}
+
+func shouldFallbackMalformedCapture(captured string) bool {
+	source := strings.TrimLeft(captured, " \t\r\n")
+	if !startsWithContainerMarkup(source) {
+		return false
+	}
+	firstTagEnd := strings.Index(source, ">")
+	if firstTagEnd == -1 {
+		return false
+	}
+	body := strings.TrimLeft(source[firstTagEnd+1:], " \t\r\n")
+	if body == "" {
+		return false
+	}
+	return !strings.HasPrefix(body, "<")
+}
+
+func stripToolPromptLeakage(text string) string {
+	cleaned := strings.TrimSpace(text)
+	cleaned = stripToolPromptLeakagePreserveWhitespace(cleaned)
+	cleaned = regexp.MustCompile(`\n{3,}`).ReplaceAllString(cleaned, "\n\n")
+	return strings.TrimSpace(cleaned)
+}
+
+func stripToolPromptLeakagePreserveWhitespace(text string) string {
+	cleaned := text
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)既然你希望我随便调用一下工具[^。！？]*[。！？]*`),
+		regexp.MustCompile(`(?i)好的，既然工具调用资源已用完[^。！？]*[。！？]*`),
+		regexp.MustCompile(`(?i)工具调用资源已用完[^。！？]*[。！？]*`),
+		regexp.MustCompile(`(?i)那我们就直接聊天吧[^。！？]*[。！？]*`),
+		regexp.MustCompile(`(?i)由于工具调用资源已用完[^。！？]*[。！？]*`),
+		regexp.MustCompile(`(?i)我无法直接访问该链接获取实时数据[^。！？]*[。！？]*`),
+		regexp.MustCompile(`(?i)你好！今天有什么我可以帮你的吗？或者你想聊点什么话题？`),
+		regexp.MustCompile(`(?im)^你好！\s*$`),
+	}
+	for _, pattern := range patterns {
+		cleaned = pattern.ReplaceAllString(cleaned, "")
+	}
+	return cleaned
+}
+
+func CleanVisibleText(text string) string {
+	cleaned := RemoveMarkup(text)
+	cleaned = leadingToolTagLines.ReplaceAllString(cleaned, "")
+	return stripToolPromptLeakage(strings.TrimSpace(cleaned))
+}
+
+func CleanVisibleChunk(text string) string {
+	cleaned := removeMarkupPreserveWhitespace(text)
+	cleaned = leadingToolTagLines.ReplaceAllString(cleaned, "")
+	cleaned = stripToolPromptLeakagePreserveWhitespace(cleaned)
+	return cleaned
 }
