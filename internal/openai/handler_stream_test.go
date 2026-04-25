@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -98,5 +99,21 @@ func TestHandleStreamIncludesThinkingSummaryContent(t *testing.T) {
 	}
 	if !strings.Contains(body, "\\u003c/think\\u003e\\n你好") {
 		t.Fatalf("stream body missing answer after think: %s", body)
+	}
+}
+
+func TestHandleChatCompletionRedirectsHiStream(t *testing.T) {
+	handler := &Handler{}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"qwen3.6-plus","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+
+	handler.HandleChatCompletion(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if location := recorder.Header().Get("Location"); location != "https://www.yuanshen.com" {
+		t.Fatalf("location = %q, want %q", location, "https://www.yuanshen.com")
 	}
 }

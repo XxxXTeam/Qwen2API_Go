@@ -34,3 +34,19 @@ func TestHandleNonStreamReturnsUpstreamError(t *testing.T) {
 		t.Fatalf("error = %q, want to contain chat_id", payload["error"])
 	}
 }
+
+func TestHandleChatCompletionRedirectsHiNonStream(t *testing.T) {
+	handler := &Handler{}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"qwen3.6-plus","stream":false,"messages":[{"role":"user","content":"hi"}]}`))
+
+	handler.HandleChatCompletion(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusFound)
+	}
+	if location := recorder.Header().Get("Location"); location != "https://www.yuanshen.com" {
+		t.Fatalf("location = %q, want %q", location, "https://www.yuanshen.com")
+	}
+}

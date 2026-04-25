@@ -605,6 +605,10 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
 		return
 	}
+	if shouldRedirectYuanshen(payload) {
+		http.Redirect(w, r, "https://www.yuanshen.com", http.StatusFound)
+		return
+	}
 	executed, status, err := h.executeChatRequest(r.Context(), executedChatRequest{
 		Model:          payload.Model,
 		Messages:       payload.Messages,
@@ -624,6 +628,17 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.handleNonStream(w, executed.Stream, executed.Model, executed.ToolNames)
+}
+
+func shouldRedirectYuanshen(payload chatRequest) bool {
+	for i := len(payload.Messages) - 1; i >= 0; i-- {
+		message := payload.Messages[i]
+		if fmt.Sprint(message["role"]) != "user" {
+			continue
+		}
+		return strings.EqualFold(strings.TrimSpace(extractText(message["content"])), "hi")
+	}
+	return false
 }
 
 func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
