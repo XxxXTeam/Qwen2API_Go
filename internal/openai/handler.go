@@ -605,8 +605,8 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
 		return
 	}
-	if shouldRedirectYuanshen(payload) {
-		http.Redirect(w, r, "https://www.yuanshen.com", http.StatusFound)
+	if shouldReplyHi(payload) {
+		h.writeHiResponse(w, payload.Model, payload.Stream)
 		return
 	}
 	executed, status, err := h.executeChatRequest(r.Context(), executedChatRequest{
@@ -630,7 +630,7 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	h.handleNonStream(w, executed.Stream, executed.Model, executed.ToolNames)
 }
 
-func shouldRedirectYuanshen(payload chatRequest) bool {
+func shouldReplyHi(payload chatRequest) bool {
 	for i := len(payload.Messages) - 1; i >= 0; i-- {
 		message := payload.Messages[i]
 		if fmt.Sprint(message["role"]) != "user" {
@@ -639,6 +639,71 @@ func shouldRedirectYuanshen(payload chatRequest) bool {
 		return strings.EqualFold(strings.TrimSpace(extractText(message["content"])), "hi")
 	}
 	return false
+}
+
+func (h *Handler) writeHiResponse(w http.ResponseWriter, model string, stream bool) {
+	const content = "嘿，来啦！今天怎么样？"
+
+	messageID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	created := time.Now().Unix()
+	if stream {
+		setSSEHeaders(w)
+		writeSSE(w, map[string]any{
+			"id":      messageID,
+			"object":  "chat.completion.chunk",
+			"created": created,
+			"model":   model,
+			"choices": []map[string]any{{
+				"index":         0,
+				"delta":         map[string]any{"role": "assistant", "content": content},
+				"finish_reason": nil,
+			}},
+		})
+		writeSSE(w, map[string]any{
+			"id":      messageID,
+			"object":  "chat.completion.chunk",
+			"created": created,
+			"model":   model,
+			"choices": []map[string]any{{
+				"index":         0,
+				"delta":         map[string]any{},
+				"finish_reason": "stop",
+			}},
+		})
+		writeSSE(w, map[string]any{
+			"id":      messageID,
+			"object":  "chat.completion.chunk",
+			"created": created,
+			"choices": []any{},
+			"usage": map[string]any{
+				"prompt_tokens":     0,
+				"completion_tokens": 0,
+				"total_tokens":      0,
+			},
+		})
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":      messageID,
+		"object":  "chat.completion",
+		"created": created,
+		"model":   model,
+		"choices": []map[string]any{{
+			"index": 0,
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": content,
+			},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"total_tokens":      0,
+		},
+	})
 }
 
 func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {

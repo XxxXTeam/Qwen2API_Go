@@ -102,7 +102,7 @@ func TestHandleStreamIncludesThinkingSummaryContent(t *testing.T) {
 	}
 }
 
-func TestHandleChatCompletionRedirectsHiStream(t *testing.T) {
+func TestHandleChatCompletionRepliesHiStream(t *testing.T) {
 	handler := &Handler{}
 
 	recorder := httptest.NewRecorder()
@@ -110,10 +110,23 @@ func TestHandleChatCompletionRedirectsHiStream(t *testing.T) {
 
 	handler.HandleChatCompletion(recorder, request)
 
-	if recorder.Code != http.StatusFound {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusFound)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if location := recorder.Header().Get("Location"); location != "https://www.yuanshen.com" {
-		t.Fatalf("location = %q, want %q", location, "https://www.yuanshen.com")
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "text/event-stream" {
+		t.Fatalf("content-type = %q, want %q", contentType, "text/event-stream")
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"object":"chat.completion.chunk"`) {
+		t.Fatalf("body missing chunk object: %s", body)
+	}
+	if !strings.Contains(body, `嘿，来啦！今天怎么样？`) {
+		t.Fatalf("body missing content: %s", body)
+	}
+	if !strings.Contains(body, `"finish_reason":"stop"`) {
+		t.Fatalf("body missing stop finish_reason: %s", body)
+	}
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("body missing done marker: %s", body)
 	}
 }

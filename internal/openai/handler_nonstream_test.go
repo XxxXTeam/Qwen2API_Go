@@ -35,7 +35,7 @@ func TestHandleNonStreamReturnsUpstreamError(t *testing.T) {
 	}
 }
 
-func TestHandleChatCompletionRedirectsHiNonStream(t *testing.T) {
+func TestHandleChatCompletionRepliesHiNonStream(t *testing.T) {
 	handler := &Handler{}
 
 	recorder := httptest.NewRecorder()
@@ -43,10 +43,26 @@ func TestHandleChatCompletionRedirectsHiNonStream(t *testing.T) {
 
 	handler.HandleChatCompletion(recorder, request)
 
-	if recorder.Code != http.StatusFound {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusFound)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if location := recorder.Header().Get("Location"); location != "https://www.yuanshen.com" {
-		t.Fatalf("location = %q, want %q", location, "https://www.yuanshen.com")
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("content-type = %q, want %q", contentType, "application/json")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload["object"] != "chat.completion" {
+		t.Fatalf("object = %v, want chat.completion", payload["object"])
+	}
+	choices, _ := payload["choices"].([]any)
+	if len(choices) != 1 {
+		t.Fatalf("choices len = %d, want 1", len(choices))
+	}
+	choice, _ := choices[0].(map[string]any)
+	message, _ := choice["message"].(map[string]any)
+	if got := message["content"]; got != "嘿，来啦！今天怎么样？" {
+		t.Fatalf("content = %v, want %q", got, "嘿，来啦！今天怎么样？")
 	}
 }
