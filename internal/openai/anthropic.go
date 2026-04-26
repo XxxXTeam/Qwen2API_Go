@@ -113,6 +113,11 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	estimatedPromptTokens, err := estimateAnthropicInputTokens(payload)
+	if err != nil {
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 
 	executed, status, err := h.executeChatRequest(r.Context(), executedRequest)
 	if err != nil {
@@ -122,10 +127,10 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 	defer executed.Stream.Close()
 
 	if payload.Stream {
-		h.handleAnthropicStream(w, executed.Stream, executed.Model, executed.ToolNames)
+		h.handleAnthropicStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
 		return
 	}
-	h.handleAnthropicNonStream(w, executed.Stream, executed.Model, executed.ToolNames)
+	h.handleAnthropicNonStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
 }
 
 func (h *Handler) HandleAnthropicCountTokens(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +390,7 @@ func convertAnthropicToolChoice(raw json.RawMessage) any {
 	return nil
 }
 
-func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
+func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
 	result, upstreamErr, err := h.readCompletedChat(body, model, toolNames)
 	if err != nil {
 		writeAnthropicStatusError(w, http.StatusBadGateway, "读取上游响应失败")
@@ -400,6 +405,13 @@ func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader
 		return
 	}
 
+	result.PromptTokens, result.CompletionTokens, result.TotalTokens = applyUsageFallback(
+		result.PromptTokens,
+		result.CompletionTokens,
+		result.TotalTokens,
+		estimatedPromptTokens,
+		estimateOpenAIOutputTokens(result.Content, result.ToolCalls),
+	)
 	messageID := anthropicMessageID()
 	h.metrics.RecordModelUsage(model, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	response := anthropicResponseMessage{
@@ -418,7 +430,7 @@ func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
+func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
 	setSSEHeaders(w)
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(body)
@@ -444,7 +456,11 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 			continue
 		}
 		promptTokens, completionTokens, totalTokens = extractUsage(raw, promptTokens, completionTokens, totalTokens)
-		ensureAnthropicMessageStart(w, &anthropicState, model, promptTokens)
+		visiblePromptTokens := promptTokens
+		if visiblePromptTokens <= 0 {
+			visiblePromptTokens = estimatedPromptTokens
+		}
+		ensureAnthropicMessageStart(w, &anthropicState, model, visiblePromptTokens)
 
 		choices, _ := raw["choices"].([]any)
 		if len(choices) == 0 {
@@ -480,13 +496,17 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 	}
 
 	finalResult := toolcall.FinalizeStream(streamState)
+	startPromptTokens := promptTokens
+	if startPromptTokens < estimatedPromptTokens {
+		startPromptTokens = estimatedPromptTokens
+	}
 	finalVisibleContent := toolcall.CleanVisibleChunk(finalResult.Content)
 	if finalVisibleContent != "" && !shouldSkipAnthropicTextChunk(finalVisibleContent) {
-		ensureAnthropicMessageStart(w, &anthropicState, model, promptTokens)
+		ensureAnthropicMessageStart(w, &anthropicState, model, startPromptTokens)
 		emitAnthropicTextDelta(w, &anthropicState, finalVisibleContent)
 	}
 	if len(finalResult.ToolCalls) > 0 {
-		ensureAnthropicMessageStart(w, &anthropicState, model, promptTokens)
+		ensureAnthropicMessageStart(w, &anthropicState, model, startPromptTokens)
 		toolCallsSent = true
 		closeAnthropicActiveBlock(w, &anthropicState)
 		for _, call := range finalResult.ToolCalls {
@@ -494,11 +514,15 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 		}
 	}
 
-	ensureAnthropicMessageStart(w, &anthropicState, model, promptTokens)
+	ensureAnthropicMessageStart(w, &anthropicState, model, startPromptTokens)
 	closeAnthropicActiveBlock(w, &anthropicState)
-	if totalTokens == 0 {
-		totalTokens = promptTokens + completionTokens
-	}
+	promptTokens, completionTokens, totalTokens = applyUsageFallback(
+		promptTokens,
+		completionTokens,
+		totalTokens,
+		estimatedPromptTokens,
+		estimateOpenAIOutputTokens(finalResult.Content, finalResult.ToolCalls),
+	)
 	writeAnthropicSSE(w, "message_delta", map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{

@@ -20,7 +20,7 @@ func TestHandleNonStreamReturnsUpstreamError(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	body := `{"success":false,"request_id":"req-1","data":{"code":"RequestValidationError","details":"[\"Field 'chat_id': Field required\"]"}}`
 
-	handler.handleNonStream(recorder, strings.NewReader(body), "qwen3.6-plus", nil)
+	handler.handleNonStream(recorder, strings.NewReader(body), "qwen3.6-plus", nil, 1)
 
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)

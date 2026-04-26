@@ -15,10 +15,12 @@ const (
 type minuteBucket struct {
 	MinuteKey        int64 `json:"minuteKey"`
 	Requests         int   `json:"requests"`
+	Admin            int   `json:"admin"`
 	Chat             int   `json:"chat"`
 	Models           int   `json:"models"`
 	Image            int   `json:"image"`
 	Video            int   `json:"video"`
+	Upload           int   `json:"upload"`
 	Errors           int   `json:"errors"`
 	PromptTokens     int   `json:"promptTokens"`
 	CompletionTokens int   `json:"completionTokens"`
@@ -89,13 +91,21 @@ func (d *DashboardStats) RecordRequest(kind string, statusCode int) {
 
 	now := time.Now()
 	bucket := d.ensureBucket(now)
-	d.totals.Requests++
-	bucket.Requests++
+	if kind != "admin" {
+		d.totals.Requests++
+		bucket.Requests++
+	}
 
 	switch kind {
 	case "models":
 		d.totals.Models++
 		bucket.Models++
+	case "admin":
+		d.totals.Admin++
+		bucket.Admin++
+	case "upload":
+		d.totals.Upload++
+		bucket.Upload++
 	case "image":
 		d.totals.Image++
 		bucket.Image++
@@ -107,12 +117,14 @@ func (d *DashboardStats) RecordRequest(kind string, statusCode int) {
 		bucket.Chat++
 	}
 
-	if statusCode >= 400 {
+	if kind != "admin" && statusCode >= 400 {
 		d.totals.Errors++
 		bucket.Errors++
 	}
 
-	d.requestEvents = append(d.requestEvents, now)
+	if kind != "admin" {
+		d.requestEvents = append(d.requestEvents, now)
+	}
 	d.prune(now)
 }
 
@@ -174,6 +186,10 @@ func (d *DashboardStats) Snapshot() map[string]any {
 
 	series := make([]map[string]any, 0, 30)
 	requests30 := 0
+	admin30 := 0
+	tokens30 := 0
+	peakRequests := 0
+	peakTokens := 0
 	currentKey := minuteKey(now)
 	for offset := 29; offset >= 0; offset-- {
 		key := currentKey - int64(offset)
@@ -183,14 +199,24 @@ func (d *DashboardStats) Snapshot() map[string]any {
 		}
 		ts := time.Unix(key*60, 0)
 		requests30 += bucket.Requests
+		admin30 += bucket.Admin
+		tokens30 += bucket.TotalTokens
+		if bucket.Requests > peakRequests {
+			peakRequests = bucket.Requests
+		}
+		if bucket.TotalTokens > peakTokens {
+			peakTokens = bucket.TotalTokens
+		}
 		series = append(series, map[string]any{
 			"time":             ts.UTC().Format(time.RFC3339),
 			"label":            ts.Format("15:04"),
 			"requests":         bucket.Requests,
+			"admin":            bucket.Admin,
 			"chat":             bucket.Chat,
 			"models":           bucket.Models,
 			"image":            bucket.Image,
 			"video":            bucket.Video,
+			"upload":           bucket.Upload,
 			"errors":           bucket.Errors,
 			"promptTokens":     bucket.PromptTokens,
 			"completionTokens": bucket.CompletionTokens,
@@ -204,17 +230,24 @@ func (d *DashboardStats) Snapshot() map[string]any {
 	}
 
 	return map[string]any{
-		"startedAt":     d.startedAt.UTC().Format(time.RFC3339),
-		"uptimeSeconds": int(time.Since(d.startedAt).Seconds()),
-		"rpm":           rpm,
-		"averageRpm":    float64(requests30) / 30,
-		"successRate":   successRate,
+		"startedAt":        d.startedAt.UTC().Format(time.RFC3339),
+		"uptimeSeconds":    int(time.Since(d.startedAt).Seconds()),
+		"rpm":              rpm,
+		"averageRpm":       float64(requests30) / 30,
+		"adminRequests30m": admin30,
+		"requests30m":      requests30,
+		"tokens30m":        tokens30,
+		"peakRequests":     peakRequests,
+		"peakTokens":       peakTokens,
+		"successRate":      successRate,
 		"totals": map[string]int{
 			"requests":         d.totals.Requests,
+			"admin":            d.totals.Admin,
 			"chat":             d.totals.Chat,
 			"models":           d.totals.Models,
 			"image":            d.totals.Image,
 			"video":            d.totals.Video,
+			"upload":           d.totals.Upload,
 			"errors":           d.totals.Errors,
 			"promptTokens":     d.totals.PromptTokens,
 			"completionTokens": d.totals.CompletionTokens,
@@ -226,6 +259,8 @@ func (d *DashboardStats) Snapshot() map[string]any {
 			{"label": "Models", "value": d.totals.Models},
 			{"label": "Image", "value": d.totals.Image},
 			{"label": "Video", "value": d.totals.Video},
+			{"label": "Upload", "value": d.totals.Upload},
+			{"label": "Admin", "value": d.totals.Admin},
 		},
 	}
 }

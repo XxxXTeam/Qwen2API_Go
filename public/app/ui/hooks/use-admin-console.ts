@@ -25,6 +25,7 @@ const DEFAULT_FILTERS: Filters = {
   pageSize: 50,
 };
 const THEME_STORAGE_KEY = "qwen2api-theme";
+const SIDEBAR_STORAGE_KEY = "qwen2api-sidebar-collapsed";
 
 function getInitialTheme(): ThemeMode {
   if (typeof window === "undefined") {
@@ -72,6 +73,12 @@ export function useAdminConsole() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+  });
   const [loadingShell, startShellTransition] = useTransition();
   const [loadingAccounts, startAccountsTransition] = useTransition();
 
@@ -253,6 +260,10 @@ export function useAdminConsole() {
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
 
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
   async function submitAction<T = unknown>(path: string, body?: Record<string, unknown>, method = "POST") {
     if (!apiKey) {
       return null;
@@ -303,6 +314,7 @@ export function useAdminConsole() {
       savingSettings,
       activeTab,
       themeMode,
+      sidebarCollapsed,
       loadingShell,
       loadingAccounts,
       apiKey,
@@ -328,6 +340,7 @@ export function useAdminConsole() {
       setThresholdHours,
       setSettings,
       setActiveTab,
+      toggleSidebar: () => setSidebarCollapsed((current) => !current),
       toggleTheme: () => setThemeMode((current) => (current === "light" ? "dark" : "light")),
       createAccount: async () => {
         await submitAction("/api/setAccount", {

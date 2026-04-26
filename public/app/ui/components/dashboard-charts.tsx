@@ -11,6 +11,14 @@ export function formatCompactNumber(value: number | undefined) {
   }).format(safeValue);
 }
 
+export function formatDecimal(value: number | undefined, digits = 1) {
+  const safeValue = Number(value || 0);
+  return new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(safeValue);
+}
+
 export function formatUptime(seconds: number | undefined) {
   const safeSeconds = Math.max(0, Number(seconds || 0));
   const hours = Math.floor(safeSeconds / 3600);

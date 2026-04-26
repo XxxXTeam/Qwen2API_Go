@@ -12,6 +12,16 @@ export function ModelsTab({
   keyword: string;
   setKeyword: (value: string) => void;
 }) {
+  const totals = models.reduce(
+    (acc, model) => {
+      acc.prompt += model.usage?.promptTokens || 0;
+      acc.completion += model.usage?.completionTokens || 0;
+      acc.total += model.usage?.totalTokens || 0;
+      return acc;
+    },
+    { prompt: 0, completion: 0, total: 0 },
+  );
+
   return (
     <Card className="panel">
       <Card.Header className="panel-header">
@@ -22,6 +32,24 @@ export function ModelsTab({
         />
       </Card.Header>
       <Card.Content className="stack-lg">
+        <div className="model-summary-strip">
+          <div className="overview-kpi-item">
+            <span>当前模型数</span>
+            <strong>{formatCompactNumber(models.length)}</strong>
+          </div>
+          <div className="overview-kpi-item">
+            <span>累计输入</span>
+            <strong>{formatCompactNumber(totals.prompt)}</strong>
+          </div>
+          <div className="overview-kpi-item">
+            <span>累计输出</span>
+            <strong>{formatCompactNumber(totals.completion)}</strong>
+          </div>
+          <div className="overview-kpi-item">
+            <span>累计总量</span>
+            <strong>{formatCompactNumber(totals.total)}</strong>
+          </div>
+        </div>
         <div className="model-grid">
           {models.map((model) => (
             <Card className="panel model-card" key={model.id}>
@@ -35,6 +63,7 @@ export function ModelsTab({
                   {model.id.includes("search") ? <Chip color="warning" variant="soft">Search</Chip> : null}
                   {model.id.includes("image") ? <Chip color="accent" variant="soft">Image</Chip> : null}
                   {model.id.includes("video") ? <Chip color="danger" variant="soft">Video</Chip> : null}
+                  {model.usage?.totalTokens ? <Chip color="success" variant="soft">活跃</Chip> : null}
                 </div>
                 <div className="kv-stack">
                   <div><span>上游 ID</span><strong>{model.upstream_id || "-"}</strong></div>

@@ -100,7 +100,7 @@ func TestHandleAnthropicNonStreamMapsStableToolUseAndStopReason(t *testing.T) {
 		"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}
 	}`
 
-	handler.handleAnthropicNonStream(recorder, strings.NewReader(body), "qwen3.6-plus", []string{"search"})
+	handler.handleAnthropicNonStream(recorder, strings.NewReader(body), "qwen3.6-plus", []string{"search"}, 1)
 
 	var payload map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
@@ -146,7 +146,7 @@ func TestHandleAnthropicStreamFormatsUsageAndToolOnlyEvents(t *testing.T) {
 	}, "\n")
 
 	recorder := httptest.NewRecorder()
-	handler.handleAnthropicStream(recorder, strings.NewReader(upstream), "qwen3.6-plus", []string{"search"})
+	handler.handleAnthropicStream(recorder, strings.NewReader(upstream), "qwen3.6-plus", []string{"search"}, 1)
 
 	body := recorder.Body.String()
 	for _, marker := range []string{

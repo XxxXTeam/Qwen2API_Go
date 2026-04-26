@@ -612,8 +612,9 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
 		return
 	}
+	estimatedPromptTokens := estimateOpenAIInputTokens(payload.Messages, payload.Tools, payload.ToolChoice)
 	if shouldReplyHi(payload) {
-		h.writeHiResponse(w, payload.Model, payload.Stream)
+		h.writeHiResponse(w, payload.Model, payload.Stream, estimatedPromptTokens)
 		return
 	}
 	executed, status, err := h.executeChatRequest(r.Context(), executedChatRequest{
@@ -631,10 +632,10 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	defer executed.Stream.Close()
 
 	if payload.Stream {
-		h.handleStream(w, executed.Stream, executed.Model, executed.ToolNames)
+		h.handleStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
 		return
 	}
-	h.handleNonStream(w, executed.Stream, executed.Model, executed.ToolNames)
+	h.handleNonStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
 }
 
 func shouldReplyHi(payload chatRequest) bool {
@@ -648,8 +649,10 @@ func shouldReplyHi(payload chatRequest) bool {
 	return false
 }
 
-func (h *Handler) writeHiResponse(w http.ResponseWriter, model string, stream bool) {
+func (h *Handler) writeHiResponse(w http.ResponseWriter, model string, stream bool, estimatedPromptTokens int) {
 	const content = "嘿，来啦！今天怎么样？"
+	estimatedCompletionTokens := estimateOpenAIOutputTokens(content, nil)
+	promptTokens, completionTokens, totalTokens := applyUsageFallback(0, 0, 0, estimatedPromptTokens, estimatedCompletionTokens)
 
 	messageID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 	created := time.Now().Unix()
@@ -683,12 +686,15 @@ func (h *Handler) writeHiResponse(w http.ResponseWriter, model string, stream bo
 			"created": created,
 			"choices": []any{},
 			"usage": map[string]any{
-				"prompt_tokens":     0,
-				"completion_tokens": 0,
-				"total_tokens":      0,
+				"prompt_tokens":     promptTokens,
+				"completion_tokens": completionTokens,
+				"total_tokens":      totalTokens,
 			},
 		})
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		if h.metrics != nil {
+			h.metrics.RecordModelUsage(model, promptTokens, completionTokens, totalTokens)
+		}
 		return
 	}
 
@@ -706,14 +712,17 @@ func (h *Handler) writeHiResponse(w http.ResponseWriter, model string, stream bo
 			"finish_reason": "stop",
 		}},
 		"usage": map[string]any{
-			"prompt_tokens":     0,
-			"completion_tokens": 0,
-			"total_tokens":      0,
+			"prompt_tokens":     promptTokens,
+			"completion_tokens": completionTokens,
+			"total_tokens":      totalTokens,
 		},
 	})
+	if h.metrics != nil {
+		h.metrics.RecordModelUsage(model, promptTokens, completionTokens, totalTokens)
+	}
 }
 
-func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
+func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
 	setSSEHeaders(w)
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(body)
@@ -878,6 +887,13 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 			}(),
 		}},
 	})
+	promptTokens, completionTokens, totalTokens = applyUsageFallback(
+		promptTokens,
+		completionTokens,
+		totalTokens,
+		estimatedPromptTokens,
+		estimateOpenAIOutputTokens(contentBuilder.String(), nil),
+	)
 	writeSSE(w, map[string]any{
 		"id":      messageID,
 		"object":  "chat.completion.chunk",
@@ -903,7 +919,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 	}))
 }
 
-func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string) {
+func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
 	result, upstreamErr, err := h.readCompletedChat(body, model, toolNames)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "读取上游响应失败"})
@@ -928,6 +944,13 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 		}
 		message["tool_calls"] = toolcall.FormatOpenAIToolCalls(result.ToolCalls)
 	}
+	result.PromptTokens, result.CompletionTokens, result.TotalTokens = applyUsageFallback(
+		result.PromptTokens,
+		result.CompletionTokens,
+		result.TotalTokens,
+		estimatedPromptTokens,
+		estimateOpenAIOutputTokens(result.Content, result.ToolCalls),
+	)
 	h.logger.DebugModule("OPENAI", "non-stream response model=%s content=%q tool_calls=%s finish_reason=%s usage=%s", model, result.Content, debugJSON(result.ToolCalls), result.FinishReason, debugJSON(map[string]any{
 		"prompt_tokens":     result.PromptTokens,
 		"completion_tokens": result.CompletionTokens,

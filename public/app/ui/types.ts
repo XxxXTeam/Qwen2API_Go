@@ -36,13 +36,20 @@ export type OverviewResponse = {
     uptimeSeconds: number;
     rpm: number;
     averageRpm: number;
+    requests30m: number;
+    adminRequests30m: number;
+    tokens30m: number;
+    peakRequests: number;
+    peakTokens: number;
     successRate: number;
     totals: {
       requests: number;
+      admin: number;
       chat: number;
       models: number;
       image: number;
       video: number;
+      upload: number;
       errors: number;
       promptTokens: number;
       completionTokens: number;
@@ -52,10 +59,12 @@ export type OverviewResponse = {
       time: string;
       label: string;
       requests: number;
+      admin: number;
       chat: number;
       models: number;
       image: number;
       video: number;
+      upload: number;
       errors: number;
       promptTokens: number;
       completionTokens: number;
@@ -162,6 +171,26 @@ export type UploadItem = {
 export type UploadResponse = {
   object: string;
   data: UploadItem[];
+};
+
+export type ChatCompletionResponse = {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    finish_reason: string | null;
+    message?: {
+      role: string;
+      content: string | null;
+    };
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 };
 
 export type Filters = {
