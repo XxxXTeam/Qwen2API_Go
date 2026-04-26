@@ -92,7 +92,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-out
-          path: public
+          path: dist/frontend-out
 
       - name: Build package
         id: package
@@ -110,9 +110,11 @@ jobs:
           PACKAGE_BASENAME="qwen2api_${VERSION}_${GOOS}_${GOARCH}"
           PACKAGE_DIR="dist/${PACKAGE_BASENAME}"
           mkdir -p "${PACKAGE_DIR}/public"
+          mkdir -p public/out
 
           go build -trimpath -ldflags="-s -w" -o "${PACKAGE_DIR}/${BINARY_NAME}" ./cmd/qwen2api
           cp README.md "${PACKAGE_DIR}/README.md"
+          cp -r dist/frontend-out/. public/out/
           cp -r public/out "${PACKAGE_DIR}/public/out"
 
           if [ "${GOOS}" != "windows" ]; then
