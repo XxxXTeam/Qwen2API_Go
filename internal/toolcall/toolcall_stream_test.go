@@ -186,6 +186,43 @@ func TestBuildInstructionsMatchesStrictJSGuardrails(t *testing.T) {
 	}
 }
 
+func TestInjectPromptAppendsReminderToLatestMessage(t *testing.T) {
+	messages := []map[string]any{
+		{"role": "system", "content": "你是一个助手"},
+		{"role": "user", "content": "第一轮问题"},
+		{"role": "assistant", "content": "第一轮回答"},
+		{"role": "user", "content": "请继续处理"},
+	}
+	tools := []any{
+		map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "fetch_json",
+				"description": "fetch data",
+				"parameters": map[string]any{
+					"type": "object",
+				},
+			},
+		},
+	}
+
+	result := InjectPrompt(messages, tools, "auto")
+	if len(result.Messages) != 4 {
+		t.Fatalf("messages len = %d, want 4", len(result.Messages))
+	}
+
+	lastContent := normalizeMessageTextContent(result.Messages[len(result.Messages)-1]["content"])
+	for _, snippet := range []string{
+		"[ml_tool reminder]",
+		"Allowed ml_tool names: fetch_json.",
+		"Ignore built-in/native/platform tools.",
+	} {
+		if !strings.Contains(lastContent, snippet) {
+			t.Fatalf("latest message missing %q\n%s", snippet, lastContent)
+		}
+	}
+}
+
 func TestCleanVisibleChunkPreservesIndentedJSONLine(t *testing.T) {
 	input := "\n      \"t"
 	got := CleanVisibleChunk(input)

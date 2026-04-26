@@ -114,7 +114,7 @@ func InjectPrompt(messages []map[string]any, toolsRaw any, toolChoice any) Injec
 				normalizedMessages[i]["content"] = strings.TrimSpace(current) + "\n\n" + toolPrompt
 			}
 			return InjectionResult{
-				Messages:  normalizedMessages,
+				Messages:  appendToolReminder(normalizedMessages, toolNames, policy),
 				ToolNames: toolNames,
 				Policy:    policy,
 			}
@@ -122,9 +122,89 @@ func InjectPrompt(messages []map[string]any, toolsRaw any, toolChoice any) Injec
 	}
 
 	return InjectionResult{
-		Messages:  append([]map[string]any{{"role": "system", "content": toolPrompt}}, normalizedMessages...),
+		Messages:  appendToolReminder(append([]map[string]any{{"role": "system", "content": toolPrompt}}, normalizedMessages...), toolNames, policy),
 		ToolNames: toolNames,
 		Policy:    policy,
+	}
+}
+
+func appendToolReminder(messages []map[string]any, toolNames []string, policy ToolChoicePolicy) []map[string]any {
+	if !policy.Enabled || len(messages) == 0 || len(toolNames) == 0 {
+		return messages
+	}
+
+	reminder := buildReminder(toolNames, policy)
+	if strings.TrimSpace(reminder) == "" {
+		return messages
+	}
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i] == nil {
+			continue
+		}
+		role := strings.ToLower(strings.TrimSpace(fmt.Sprint(messages[i]["role"])))
+		if role == "system" {
+			continue
+		}
+		messages[i]["content"] = appendReminderToContent(messages[i]["content"], reminder)
+		return messages
+	}
+	return messages
+}
+
+func buildReminder(toolNames []string, policy ToolChoicePolicy) string {
+	if len(toolNames) == 0 {
+		return ""
+	}
+
+	modeLine := "If a tool is needed, use only the listed ml_tool names."
+	if policy.Mode == "required" {
+		modeLine = "You must call one listed ml_tool before the final answer."
+	}
+	if policy.Mode == "specific" && policy.RequiredTool != "" {
+		modeLine = fmt.Sprintf("You must call ml_tool %q before the final answer.", policy.RequiredTool)
+	}
+
+	return strings.Join([]string{
+		"[ml_tool reminder]",
+		"Ignore built-in/native/platform tools.",
+		fmt.Sprintf("Allowed ml_tool names: %s.", strings.Join(toolNames, ", ")),
+		modeLine,
+		"If calling a tool, output only complete <ml_tool_calls> XML with <ml_tool_name> and <ml_parameters>.",
+	}, "\n")
+}
+
+func appendReminderToContent(content any, reminder string) any {
+	if strings.TrimSpace(reminder) == "" {
+		return content
+	}
+
+	switch value := content.(type) {
+	case string:
+		if strings.Contains(value, "[ml_tool reminder]") {
+			return value
+		}
+		if strings.TrimSpace(value) == "" {
+			return reminder
+		}
+		return strings.TrimSpace(value) + "\n\n" + reminder
+	case []any:
+		hasReminder := false
+		items := make([]any, 0, len(value)+1)
+		for _, raw := range value {
+			item, ok := raw.(map[string]any)
+			if ok && strings.EqualFold(fmt.Sprint(item["type"]), "text") && strings.Contains(fmt.Sprint(item["text"]), "[ml_tool reminder]") {
+				hasReminder = true
+			}
+			items = append(items, raw)
+		}
+		if hasReminder {
+			return value
+		}
+		items = append(items, map[string]any{"type": "text", "text": reminder})
+		return items
+	default:
+		return reminder
 	}
 }
 
