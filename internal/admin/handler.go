@@ -245,6 +245,37 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
+	models, err := h.openai.ListModelVariants(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+
+	usageByModel := h.metrics.ModelUsageSnapshot()
+	result := make([]map[string]any, 0, len(models))
+	for _, item := range models {
+		modelID := strings.TrimSpace(fmt.Sprint(item["id"]))
+		usage := usageByModel[modelID]
+
+		enriched := make(map[string]any, len(item)+1)
+		for key, value := range item {
+			enriched[key] = value
+		}
+		enriched["usage"] = map[string]int{
+			"promptTokens":     usage.PromptTokens,
+			"completionTokens": usage.CompletionTokens,
+			"totalTokens":      usage.TotalTokens,
+		}
+		result = append(result, enriched)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"object": "list",
+		"data":   result,
+	})
+}
+
 func boolToInt(v bool) int {
 	if v {
 		return 1

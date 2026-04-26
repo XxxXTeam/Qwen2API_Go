@@ -401,7 +401,7 @@ func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader
 	}
 
 	messageID := anthropicMessageID()
-	h.metrics.RecordUsage(result.PromptTokens, result.CompletionTokens, result.TotalTokens)
+	h.metrics.RecordModelUsage(model, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	response := anthropicResponseMessage{
 		ID:           messageID,
 		Type:         "message",
@@ -512,7 +512,7 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 	writeAnthropicSSE(w, "message_stop", map[string]any{
 		"type": "message_stop",
 	})
-	h.metrics.RecordUsage(promptTokens, completionTokens, totalTokens)
+	h.metrics.RecordModelUsage(model, promptTokens, completionTokens, totalTokens)
 }
 
 func ensureAnthropicMessageStart(w io.Writer, state *anthropicStreamState, model string, promptTokens int) {

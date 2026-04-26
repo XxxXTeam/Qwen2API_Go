@@ -109,7 +109,7 @@ export function useAdminConsole() {
       const [overviewRes, settingsRes, modelsRes] = await Promise.all([
         apiRequest<OverviewResponse>("/api/dashboard/overview", {}, requestKey),
         apiRequest<SettingsResponse>("/api/settings", {}, requestKey),
-        apiRequest<ModelsResponse>("/models"),
+        apiRequest<ModelsResponse>("/api/models", {}, requestKey),
       ]);
 
       setOverview(overviewRes);

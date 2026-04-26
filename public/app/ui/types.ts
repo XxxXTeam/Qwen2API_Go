@@ -113,6 +113,11 @@ export type ModelItem = {
   name: string;
   upstream_id?: string;
   display_name?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 };
 
 export type ModelsResponse = {

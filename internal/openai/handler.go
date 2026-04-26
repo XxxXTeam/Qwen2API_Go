@@ -541,17 +541,27 @@ type chatRequest struct {
 }
 
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
-	session, err := h.accounts.GetAccountSession()
+	result, err := h.ListModelVariants(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"object": "list",
+		"data":   result,
+	})
+}
 
-	models, err := h.qwen.ListModels(r.Context(), session.Token)
+func (h *Handler) ListModelVariants(ctx context.Context) ([]map[string]any, error) {
+	session, err := h.accounts.GetAccountSession()
+	if err != nil {
+		return nil, err
+	}
+
+	models, err := h.qwen.ListModels(ctx, session.Token)
 	if err != nil {
 		h.accounts.RecordFailure(session.Email)
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
+		return nil, err
 	}
 	h.accounts.ResetFailure(session.Email)
 
@@ -579,10 +589,7 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 			result = append(result, buildModelVariant(model, "-image-edit"))
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object": "list",
-		"data":   result,
-	})
+	return result, nil
 }
 
 func buildModelVariant(model qwen.Model, suffix string) map[string]any {
@@ -883,7 +890,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 		},
 	})
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
-	h.metrics.RecordUsage(promptTokens, completionTokens, totalTokens)
+	h.metrics.RecordModelUsage(model, promptTokens, completionTokens, totalTokens)
 	h.logger.DebugModule("OPENAI", "stream completed model=%s final_content=%q finish_reason=%s usage=%s", model, contentBuilder.String(), func() string {
 		if toolCallsSent {
 			return "tool_calls"
@@ -926,7 +933,7 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 		"completion_tokens": result.CompletionTokens,
 		"total_tokens":      result.TotalTokens,
 	}))
-	h.metrics.RecordUsage(result.PromptTokens, result.CompletionTokens, result.TotalTokens)
+	h.metrics.RecordModelUsage(model, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),
 		"object":  "chat.completion",

@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,18 +25,26 @@ type minuteBucket struct {
 	TotalTokens      int   `json:"totalTokens"`
 }
 
+type ModelUsage struct {
+	PromptTokens     int `json:"promptTokens"`
+	CompletionTokens int `json:"completionTokens"`
+	TotalTokens      int `json:"totalTokens"`
+}
+
 type DashboardStats struct {
 	mu            sync.Mutex
 	startedAt     time.Time
 	totals        minuteBucket
 	requestEvents []time.Time
 	minutes       map[int64]*minuteBucket
+	modelUsage    map[string]ModelUsage
 }
 
 func NewDashboardStats() *DashboardStats {
 	return &DashboardStats{
-		startedAt: time.Now(),
-		minutes:   map[int64]*minuteBucket{},
+		startedAt:  time.Now(),
+		minutes:    map[int64]*minuteBucket{},
+		modelUsage: map[string]ModelUsage{},
 	}
 }
 
@@ -119,6 +128,34 @@ func (d *DashboardStats) RecordUsage(promptTokens, completionTokens, totalTokens
 	bucket.CompletionTokens += completionTokens
 	bucket.TotalTokens += totalTokens
 	d.prune(now)
+}
+
+func (d *DashboardStats) RecordModelUsage(model string, promptTokens, completionTokens, totalTokens int) {
+	d.RecordUsage(promptTokens, completionTokens, totalTokens)
+
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	usage := d.modelUsage[model]
+	usage.PromptTokens += promptTokens
+	usage.CompletionTokens += completionTokens
+	usage.TotalTokens += totalTokens
+	d.modelUsage[model] = usage
+}
+
+func (d *DashboardStats) ModelUsageSnapshot() map[string]ModelUsage {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	snapshot := make(map[string]ModelUsage, len(d.modelUsage))
+	for model, usage := range d.modelUsage {
+		snapshot[model] = usage
+	}
+	return snapshot
 }
 
 func (d *DashboardStats) Snapshot() map[string]any {

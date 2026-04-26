@@ -99,6 +99,7 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 	handle("/v1/files/upload", "upload", ensureMethod(http.MethodPost, withAnyKey(openAIHandler.HandleUploads)))
 
 	handle("/api/dashboard/overview", "chat", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleOverview)))
+	handle("/api/models", "models", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleModels)))
 	handle("/api/settings", "chat", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleSettings)))
 	handle("/api/addRegularKey", "chat", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleAddRegularKey)))
 	handle("/api/deleteRegularKey", "chat", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleDeleteRegularKey)))
