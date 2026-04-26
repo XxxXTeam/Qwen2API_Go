@@ -1,0 +1,127 @@
+name: release-assets
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: public/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: public
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: public
+        run: npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-out
+          path: public/out
+          if-no-files-found: error
+
+  build-and-upload:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            binary_name: qwen2api
+            archive_ext: tar.gz
+          - goos: linux
+            goarch: arm64
+            binary_name: qwen2api
+            archive_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            binary_name: qwen2api.exe
+            archive_ext: zip
+          - goos: windows
+            goarch: arm64
+            binary_name: qwen2api.exe
+            archive_ext: zip
+          - goos: darwin
+            goarch: amd64
+            binary_name: qwen2api
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: arm64
+            binary_name: qwen2api
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-out
+          path: public/out
+
+      - name: Build package
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          BINARY_NAME: ${{ matrix.binary_name }}
+          ARCHIVE_EXT: ${{ matrix.archive_ext }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${RELEASE_TAG#v}"
+          PACKAGE_BASENAME="qwen2api_${VERSION}_${GOOS}_${GOARCH}"
+          PACKAGE_DIR="dist/${PACKAGE_BASENAME}"
+          mkdir -p "${PACKAGE_DIR}/public"
+
+          go build -trimpath -ldflags="-s -w" -o "${PACKAGE_DIR}/${BINARY_NAME}" ./cmd/qwen2api
+          cp README.md "${PACKAGE_DIR}/README.md"
+          cp -r public/out "${PACKAGE_DIR}/public/out"
+
+          if [ "${GOOS}" != "windows" ]; then
+            chmod +x "${PACKAGE_DIR}/${BINARY_NAME}"
+          fi
+
+          if [ "${ARCHIVE_EXT}" = "zip" ]; then
+            (
+              cd dist
+              zip -r "${PACKAGE_BASENAME}.zip" "${PACKAGE_BASENAME}"
+            )
+          else
+            tar -C dist -czf "dist/${PACKAGE_BASENAME}.tar.gz" "${PACKAGE_BASENAME}"
+          fi
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+          fail_on_unmatched_files: true
