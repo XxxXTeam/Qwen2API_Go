@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.2.0...v0.3.0) (2026-04-26)
+
+
+### Features
+
+* 每个模型token统计 ([c3c71d1](https://github.com/XxxXTeam/Qwen2API_Go/commit/c3c71d17733f81bab23847cef2c358a93269d72a))
+
+
+### Bug Fixes
+
+* token计算,优化webui样式 ([655cd6e](https://github.com/XxxXTeam/Qwen2API_Go/commit/655cd6ed559745b787ec41e61b0bedf9c288eb0b))
+
 ## [0.2.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.1.0...v0.2.0) (2026-04-26)
 
 
