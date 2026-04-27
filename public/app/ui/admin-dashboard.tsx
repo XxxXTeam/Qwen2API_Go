@@ -228,6 +228,7 @@ export function AdminDashboard() {
                 addRegularKey={actions.addRegularKey}
                 deleteRegularKey={actions.deleteRegularKey}
                 refreshAllAccounts={actions.refreshAllAccounts}
+                reloadRuntimeConfig={actions.reloadRuntimeConfig}
                 saveSettings={actions.saveSettings}
               />
             ) : null}

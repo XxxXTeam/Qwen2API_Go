@@ -75,3 +75,14 @@ func (r *Runtime) SetSimpleModelMap(v bool) {
 	defer r.mu.Unlock()
 	r.simpleModelMap = v
 }
+
+func (r *Runtime) ApplySnapshot(snapshot RuntimeSnapshot) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.batchLoginConcurrency = snapshot.BatchLoginConcurrency
+	r.autoRefresh = snapshot.AutoRefresh
+	r.autoRefreshInterval = snapshot.AutoRefreshInterval
+	r.outThink = snapshot.OutThink
+	r.searchInfoMode = snapshot.SearchInfoMode
+	r.simpleModelMap = snapshot.SimpleModelMap
+}

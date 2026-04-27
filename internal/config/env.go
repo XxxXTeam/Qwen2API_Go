@@ -3,8 +3,11 @@ package config
 import (
 	"bufio"
 	"os"
+	"strconv"
 	"strings"
 )
+
+const DefaultEnvPath = ".env"
 
 const defaultDotEnvTemplate = `# Qwen2API_Go default configuration
 # First API key is treated as admin key by default.
@@ -36,6 +39,8 @@ PROXY_URL=
 REDIS_URL=
 
 # Runtime behavior
+AUTO_REFRESH=true
+AUTO_REFRESH_INTERVAL=21600
 BATCH_LOGIN_CONCURRENCY=5
 SIMPLE_MODEL_MAP=false
 SEARCH_INFO_MODE=text
@@ -66,12 +71,52 @@ func EnsureDotEnv(path string) error {
 }
 
 func LoadDotEnv(path string) {
-	file, err := os.Open(path)
+	values, err := ParseDotEnv(path)
 	if err != nil {
 		return
 	}
+	applyEnvMap(values, false)
+}
+
+func ReloadDotEnv(path string) error {
+	values, err := ParseDotEnv(path)
+	if err != nil {
+		return err
+	}
+	applyEnvMap(values, true)
+	return nil
+}
+
+func applyEnvMap(values map[string]string, override bool) {
+	for key, value := range values {
+		if !override {
+			if _, exists := os.LookupEnv(key); exists {
+				continue
+			}
+		}
+		_ = os.Setenv(key, value)
+	}
+}
+
+func RuntimeSnapshotFromConfig(cfg Config) RuntimeSnapshot {
+	return RuntimeSnapshot{
+		BatchLoginConcurrency: cfg.BatchLoginConcurrency,
+		AutoRefresh:           cfg.AutoRefresh,
+		AutoRefreshInterval:   cfg.AutoRefreshInterval,
+		OutThink:              cfg.OutThink,
+		SearchInfoMode:        cfg.SearchInfoMode,
+		SimpleModelMap:        cfg.SimpleModelMap,
+	}
+}
+
+func ParseDotEnv(path string) (map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
 	defer file.Close()
 
+	values := make(map[string]string)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -87,9 +132,68 @@ func LoadDotEnv(path string) {
 		if key == "" {
 			continue
 		}
-		if _, exists := os.LookupEnv(key); exists {
+		values[key] = value
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func SaveDotEnvValues(path string, updates map[string]string) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(raw), "\n")
+	seen := make(map[string]bool, len(updates))
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		_ = os.Setenv(key, value)
+		key, _, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value, exists := updates[key]
+		if !exists {
+			continue
+		}
+		lines[i] = key + "=" + value
+		seen[key] = true
+	}
+
+	for key, value := range updates {
+		if seen[key] {
+			continue
+		}
+		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+			lines = append(lines, "")
+		}
+		lines = append(lines, key+"="+value)
+	}
+
+	content := strings.Join(lines, "\n")
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func RuntimeSnapshotToEnv(snapshot RuntimeSnapshot) map[string]string {
+	return map[string]string{
+		"AUTO_REFRESH":            strconv.FormatBool(snapshot.AutoRefresh),
+		"AUTO_REFRESH_INTERVAL":   strconv.Itoa(snapshot.AutoRefreshInterval),
+		"BATCH_LOGIN_CONCURRENCY": strconv.Itoa(snapshot.BatchLoginConcurrency),
+		"SIMPLE_MODEL_MAP":        strconv.FormatBool(snapshot.SimpleModelMap),
+		"SEARCH_INFO_MODE":        snapshot.SearchInfoMode,
+		"OUTPUT_THINK":            strconv.FormatBool(snapshot.OutThink),
 	}
 }

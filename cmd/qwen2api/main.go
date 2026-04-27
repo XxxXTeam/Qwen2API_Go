@@ -22,10 +22,10 @@ import (
 )
 
 func main() {
-	if err := config.EnsureDotEnv(".env"); err != nil {
+	if err := config.EnsureDotEnv(config.DefaultEnvPath); err != nil {
 		panic(err)
 	}
-	config.LoadDotEnv(".env")
+	config.LoadDotEnv(config.DefaultEnvPath)
 	cfg := config.Load()
 	logger := logging.New(cfg.DebugMode)
 
@@ -49,7 +49,7 @@ func main() {
 	runtime := config.NewRuntime(cfg)
 	stats := metrics.NewDashboardStats()
 	qwenClient := qwen.NewClient(cfg, logger)
-	accountService := account.NewService(cfg, store, qwenClient, logger)
+	accountService := account.NewService(cfg, runtime, store, qwenClient, logger)
 	conversationSessions := openai.NewConversationSessionService(conversationStore, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

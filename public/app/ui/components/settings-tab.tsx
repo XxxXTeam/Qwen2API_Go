@@ -13,6 +13,7 @@ export function SettingsTab({
   addRegularKey,
   deleteRegularKey,
   refreshAllAccounts,
+  reloadRuntimeConfig,
   saveSettings,
 }: {
   settings: SettingsResponse | null;
@@ -25,6 +26,7 @@ export function SettingsTab({
   addRegularKey: () => Promise<void>;
   deleteRegularKey: (key: string) => Promise<void>;
   refreshAllAccounts: (force: boolean) => Promise<void>;
+  reloadRuntimeConfig: () => Promise<void>;
   saveSettings: (path: string, body: Record<string, unknown>, successMessage: string) => Promise<void>;
 }) {
   const enabledStrategies = [
@@ -165,8 +167,8 @@ export function SettingsTab({
 
           <Card className="panel settings-side-card">
             <Card.Header className="panel-header">
-              <Card.Title>刷新任务</Card.Title>
-              <Card.Description>把批量刷新入口独立出来，形成更明确的风险边界。</Card.Description>
+              <Card.Title>刷新与热更新</Card.Title>
+              <Card.Description>账号刷新和 `.env` 重载放在同一组，方便运维操作。</Card.Description>
             </Card.Header>
             <Card.Content className="stack-lg">
               <div className="settings-refresh-panel">
@@ -181,9 +183,19 @@ export function SettingsTab({
                 </div>
               </div>
 
+              <div className="settings-section">
+                <div className="settings-section-heading">
+                  <strong>配置热更新</strong>
+                  <span>后台保存会立即生效并写入 `.env`；手动改 `.env` 后可在这里重载。</span>
+                </div>
+                <Button className="action-button" variant="primary" isDisabled={savingSettings} onPress={() => void reloadRuntimeConfig()}>
+                  <span className="button-icon">⟳</span><span>重新加载 .env</span>
+                </Button>
+              </div>
+
               <div className="settings-risk-note">
                 <strong>操作提醒</strong>
-                <p className="panel-copy">阈值刷新会优先处理接近过期的账号；强制全刷会对整个账号池重新登录，适合集中维护窗口使用。</p>
+                <p className="panel-copy">阈值刷新会优先处理接近过期的账号；强制全刷会对整个账号池重新登录；`.env` 重载只影响运行参数，不会重建已初始化组件。</p>
               </div>
             </Card.Content>
           </Card>

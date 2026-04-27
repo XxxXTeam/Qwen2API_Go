@@ -387,6 +387,11 @@ export function useAdminConsole() {
         await loadAccounts();
         await loadShell();
       },
+      reloadRuntimeConfig: async () => {
+        await submitAction("/api/reload-runtime-config", {});
+        setToast({ type: "success", message: "已重新加载 .env，运行配置已热更新。" });
+        await loadShell();
+      },
       addRegularKey: async () => {
         await submitAction("/api/addRegularKey", { apiKey: addKeyValue });
         setAddKeyValue("");

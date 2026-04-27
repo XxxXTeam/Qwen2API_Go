@@ -46,6 +46,7 @@ type HealthStats struct {
 
 type Service struct {
 	cfg      config.Config
+	runtime  *config.Runtime
 	store    storage.AccountStore
 	client   *qwen.Client
 	logger   *logging.Logger
@@ -61,9 +62,10 @@ type Service struct {
 	refreshStop chan struct{}
 }
 
-func NewService(cfg config.Config, store storage.AccountStore, client *qwen.Client, logger *logging.Logger) *Service {
+func NewService(cfg config.Config, runtime *config.Runtime, store storage.AccountStore, client *qwen.Client, logger *logging.Logger) *Service {
 	return &Service{
 		cfg:         cfg,
+		runtime:     runtime,
 		store:       store,
 		client:      client,
 		logger:      logger,
@@ -102,10 +104,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 		s.logger.WarnModule("ACCOUNT", "保存初始化后的账号状态失败: %v", err)
 	}
 
-	if s.cfg.AutoRefresh {
-		s.logger.InfoModule("ACCOUNT", "account auto refresh enabled interval_seconds=%d", s.cfg.AutoRefreshInterval)
-		go s.runAutoRefresh()
-	}
+	go s.runAutoRefresh()
 
 	s.logger.InfoModule("ACCOUNT", "account initialize completed available=%d", len(validated))
 	return nil
@@ -185,21 +184,40 @@ func (m *tokenManager) Login(ctx context.Context, email string, password string)
 }
 
 func (s *Service) runAutoRefresh() {
-	interval := s.cfg.AutoRefreshInterval
-	if interval <= 0 {
-		interval = 6 * 60 * 60
-	}
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
-	defer ticker.Stop()
-
 	for {
+		snapshot := s.currentRuntime()
+		waitSeconds := snapshot.AutoRefreshInterval
+		if waitSeconds <= 0 {
+			waitSeconds = 6 * 60 * 60
+		}
+		if !snapshot.AutoRefresh {
+			waitSeconds = 30
+		}
+
 		select {
-		case <-ticker.C:
+		case <-time.After(time.Duration(waitSeconds) * time.Second):
+			if !snapshot.AutoRefresh {
+				continue
+			}
 			_, _ = s.RefreshAllAccounts(context.Background(), 24)
 		case <-s.refreshStop:
 			return
 		}
 	}
+}
+
+func (s *Service) currentRuntime() config.RuntimeSnapshot {
+	if s.runtime == nil {
+		return config.RuntimeSnapshot{
+			BatchLoginConcurrency: s.cfg.BatchLoginConcurrency,
+			AutoRefresh:           s.cfg.AutoRefresh,
+			AutoRefreshInterval:   s.cfg.AutoRefreshInterval,
+			OutThink:              s.cfg.OutThink,
+			SearchInfoMode:        s.cfg.SearchInfoMode,
+			SimpleModelMap:        s.cfg.SimpleModelMap,
+		}
+	}
+	return s.runtime.Snapshot()
 }
 
 func (s *Service) Accounts() []storage.Account {

@@ -147,8 +147,15 @@ func (h *Handler) HandleSetAutoRefresh(w http.ResponseWriter, r *http.Request) {
 	if payload.AutoRefreshInterval == 0 {
 		payload.AutoRefreshInterval = 6 * 60 * 60
 	}
+	if err := h.persistRuntimeSettings(func(snapshot *config.RuntimeSnapshot) {
+		snapshot.AutoRefresh = payload.AutoRefresh
+		snapshot.AutoRefreshInterval = payload.AutoRefreshInterval
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	h.runtime.SetAutoRefresh(payload.AutoRefresh, payload.AutoRefreshInterval)
-	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "自动刷新设置更新成功"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "自动刷新设置更新成功，已热更新并写入 .env"})
 }
 
 func (h *Handler) HandleSetBatchLoginConcurrency(w http.ResponseWriter, r *http.Request) {
@@ -163,8 +170,14 @@ func (h *Handler) HandleSetBatchLoginConcurrency(w http.ResponseWriter, r *http.
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "无效的批量登录并发数，允许范围为 1-20"})
 		return
 	}
+	if err := h.persistRuntimeSettings(func(snapshot *config.RuntimeSnapshot) {
+		snapshot.BatchLoginConcurrency = payload.BatchLoginConcurrency
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	h.runtime.SetBatchLoginConcurrency(payload.BatchLoginConcurrency)
-	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "批量登录并发数更新成功"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "批量登录并发数更新成功，已热更新并写入 .env"})
 }
 
 func (h *Handler) HandleSetOutThink(w http.ResponseWriter, r *http.Request) {
@@ -175,8 +188,14 @@ func (h *Handler) HandleSetOutThink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
 		return
 	}
+	if err := h.persistRuntimeSettings(func(snapshot *config.RuntimeSnapshot) {
+		snapshot.OutThink = payload.OutThink
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	h.runtime.SetOutThink(payload.OutThink)
-	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "思考输出设置更新成功"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "思考输出设置更新成功，已热更新并写入 .env"})
 }
 
 func (h *Handler) HandleSearchInfoMode(w http.ResponseWriter, r *http.Request) {
@@ -191,8 +210,14 @@ func (h *Handler) HandleSearchInfoMode(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "无效的搜索信息模式"})
 		return
 	}
+	if err := h.persistRuntimeSettings(func(snapshot *config.RuntimeSnapshot) {
+		snapshot.SearchInfoMode = payload.SearchInfoMode
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	h.runtime.SetSearchInfoMode(payload.SearchInfoMode)
-	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "搜索信息模式更新成功"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "搜索信息模式更新成功，已热更新并写入 .env"})
 }
 
 func (h *Handler) HandleSimpleModelMap(w http.ResponseWriter, r *http.Request) {
@@ -203,8 +228,29 @@ func (h *Handler) HandleSimpleModelMap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
 		return
 	}
+	if err := h.persistRuntimeSettings(func(snapshot *config.RuntimeSnapshot) {
+		snapshot.SimpleModelMap = payload.SimpleModelMap
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	h.runtime.SetSimpleModelMap(payload.SimpleModelMap)
-	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "简化模型映射设置更新成功"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "简化模型映射设置更新成功，已热更新并写入 .env"})
+}
+
+func (h *Handler) HandleReloadRuntimeConfig(w http.ResponseWriter, r *http.Request) {
+	if err := config.ReloadDotEnv(config.DefaultEnvPath); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "重新加载 .env 失败: " + err.Error()})
+		return
+	}
+	loaded := config.Load()
+	snapshot := config.RuntimeSnapshotFromConfig(loaded)
+	h.runtime.ApplySnapshot(snapshot)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  true,
+		"message": "运行配置已从 .env 重新加载并热更新",
+		"runtime": snapshot,
+	})
 }
 
 func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +329,21 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func (h *Handler) persistRuntimeSettings(mutator func(snapshot *config.RuntimeSnapshot)) error {
+	snapshot := h.runtime.Snapshot()
+	mutator(&snapshot)
+	if snapshot.AutoRefreshInterval <= 0 {
+		snapshot.AutoRefreshInterval = 6 * 60 * 60
+	}
+	if snapshot.BatchLoginConcurrency <= 0 {
+		snapshot.BatchLoginConcurrency = 1
+	}
+	if err := config.SaveDotEnvValues(config.DefaultEnvPath, config.RuntimeSnapshotToEnv(snapshot)); err != nil {
+		return fmt.Errorf("写入 .env 失败: %w", err)
+	}
+	return nil
 }
 
 func mergeModelUsage(snapshot map[string]metrics.ModelUsage, aliases ...string) metrics.ModelUsage {

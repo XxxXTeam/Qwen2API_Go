@@ -108,6 +108,7 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 	handle("/api/setOutThink", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleSetOutThink)))
 	handle("/api/search-info-mode", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleSearchInfoMode)))
 	handle("/api/simple-model-map", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleSimpleModelMap)))
+	handle("/api/reload-runtime-config", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleReloadRuntimeConfig)))
 	handle("/api/getAllAccounts", "admin", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleGetAccounts)))
 	handle("/api/setAccount", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleSetAccount)))
 	handle("/api/deleteAccount", "admin", ensureMethod(http.MethodDelete, withAdminKey(adminHandler.HandleDeleteAccount)))
