@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.3.0...v0.4.0) (2026-04-27)
+
+
+### Features
+
+* fix token stats and add docker release workflow ([63f244c](https://github.com/XxxXTeam/Qwen2API_Go/commit/63f244cc48af604a731862bd1485fc4533e75103))
+
 ## [0.3.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.2.0...v0.3.0) (2026-04-26)
 
 
