@@ -20,11 +20,6 @@
 
 Qwen 官方服务本身存在限流与风控。多人共用、固定出口 IP 高频请求、公开分发账号，都更容易触发 429、验证升级、掉号或限速。
 
-官方参考：
-
-- 限流说明：<https://help.aliyun.com/zh/model-studio/rate-limit>
-- API 参考：<https://help.aliyun.com/zh/model-studio/developer-reference/api-reference>
-
 建议：
 
 - 仅个人或小范围使用
