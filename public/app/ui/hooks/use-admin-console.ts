@@ -84,15 +84,18 @@ export function useAdminConsole() {
 
   const filteredModels = useMemo(() => {
     const keyword = deferredModelKeyword.trim().toLowerCase();
-    if (!keyword) {
-      return models;
-    }
-
-    return models.filter((model) =>
+    const filtered = !keyword ? models : models.filter((model) =>
       [model.id, model.name, model.display_name, model.upstream_id]
         .filter(Boolean)
         .some((item) => String(item).toLowerCase().includes(keyword)),
     );
+    return [...filtered].sort((left, right) => {
+      const usageDiff = (right.usage?.totalTokens || 0) - (left.usage?.totalTokens || 0);
+      if (usageDiff !== 0) {
+        return usageDiff;
+      }
+      return left.id.localeCompare(right.id, "zh-CN");
+    });
   }, [deferredModelKeyword, models]);
 
   const modelCounts = useMemo(

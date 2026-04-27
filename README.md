@@ -1,144 +1,170 @@
 # Qwen2API_Go
 
-将 Qwen Chat 的能力包装成 OpenAI 兼容接口的 Go 版本，内置管理后台、账号池、图片/视频生成、OSS 上传和静态前端服务。
+把 Qwen Chat 包装成 OpenAI / Anthropic 兼容接口，带管理后台、账号池、文件上传、图片/视频生成。
 
-## 功能
+适合：
 
-- OpenAI 兼容接口
-  - `/v1/chat/completions`
-  - `/v1/models`
-  - `/v1/messages`（Anthropic Messages 兼容）
-  - `/v1/messages/count_tokens`（Anthropic Count Tokens 兼容）
-  - `/v1/images/generations`
-  - `/v1/images/edits`
-  - `/v1/videos`
-  - `/v1/uploads`
-  - `/v1/files/upload`
-- 管理后台
-  - 账号池管理
-  - 系统设置
-  - 模型能力查看
-  - 文件上传
-  - 接口调试
-- 存储模式
-  - `none`
-  - `file`
-  - `redis`
+- 个人自用
+- 小规模内网转发
+- 给现有 OpenAI SDK / Anthropic SDK 直接接入
 
-## 首次启动
+不适合：
 
-程序启动时会自动检查项目根目录的 `.env`：
+- 公益池
+- 多人共享大并发
+- 对外售卖
 
-- 如果 `.env` 已存在，直接读取
-- 如果 `.env` 不存在，自动生成一份带注释的默认配置模板
+## 使用前提醒
 
-你只需要修改里面最关键的配置：
+### 请尽量仅自用
+
+Qwen 官方服务本身存在限流与风控。多人共用、固定出口 IP 高频请求、公开分发账号，都更容易触发 429、验证升级、掉号或限速。
+
+官方参考：
+
+- 限流说明：<https://help.aliyun.com/zh/model-studio/rate-limit>
+- API 参考：<https://help.aliyun.com/zh/model-studio/developer-reference/api-reference>
+
+建议：
+
+- 仅个人或小范围使用
+- 控制并发和请求频率
+- 不要长期把同一批账号暴露给大量用户
+- 触发 429 或异常验证后先降速，再检查出口 IP、代理和共享规模
+
+## Docker 部署
+
+这是最推荐的部署方式。
+
+### 直接拉取云端镜像
+
+默认会推送到 GHCR：
+
+```bash
+docker pull ghcr.io/xxxxteam/qwen2api_go:latest
+```
+
+如果你要固定版本，改成具体 tag：
+
+```bash
+docker pull ghcr.io/xxxxteam/qwen2api_go:0.2.0
+```
+
+### 准备配置文件
+
+在宿主机新建一个 `.env` 文件，最少内容如下：
 
 ```env
 API_KEY=sk-admin-change-me,sk-user-change-me
 DATA_SAVE_MODE=file
 QWEN_CHAT_PROXY_URL=https://chat.qwen.ai
+SERVICE_PORT=3000
 ```
 
-如果你要预置账号，可以补：
+如果你要预置账号，可以继续加：
 
 ```env
 ACCOUNTS=user1@example.com:password1,user2@example.com:password2
 ```
 
-## 编译
-
-### 当前平台直接编译
-
-```powershell
-go build -o qwen2api.exe ./cmd/qwen2api
-```
-
-Linux / macOS 只需要把输出名改掉：
+### 直接运行容器
 
 ```bash
-go build -o qwen2api ./cmd/qwen2api
+docker run -d \
+  --name qwen2api \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  --env-file .env \
+  -v ./data:/app/data \
+  ghcr.io/xxxxteam/qwen2api_go:latest
 ```
 
-### 手工交叉编译
+说明：
 
-Windows amd64:
+- `-p 3000:3000` 是把服务暴露到宿主机 `3000` 端口
+- `--env-file .env` 用于加载配置
+- `-v ./data:/app/data` 用于持久化本地数据
 
-```powershell
-$env:GOOS="windows"
-$env:GOARCH="amd64"
-$env:CGO_ENABLED="0"
-go build -trimpath -o dist/windows-amd64/qwen2api.exe ./cmd/qwen2api
+### 使用 docker compose
+
+```yaml
+services:
+  qwen2api:
+    image: ghcr.io/xxxxteam/qwen2api_go:latest
+    container_name: qwen2api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
 ```
 
-Linux amd64:
+启动：
 
-```powershell
-$env:GOOS="linux"
-$env:GOARCH="amd64"
-$env:CGO_ENABLED="0"
-go build -trimpath -o dist/linux-amd64/qwen2api ./cmd/qwen2api
+```bash
+docker compose up -d
 ```
 
-macOS arm64:
+更新：
 
-```powershell
-$env:GOOS="darwin"
-$env:GOARCH="arm64"
-$env:CGO_ENABLED="0"
-go build -trimpath -o dist/darwin-arm64/qwen2api ./cmd/qwen2api
+```bash
+docker compose pull
+docker compose up -d
 ```
 
-全部支持平台列表可以查看：
+查看日志：
 
-```powershell
-go tool dist list
+```bash
+docker logs -f qwen2api
 ```
 
-## 运行
+## 裸机部署
 
-### 直接运行源码
+如果你不想用 Docker，也可以直接运行程序。
 
-```powershell
-go run ./cmd/qwen2api
-```
+### Windows
 
-### 运行编译后的程序
-
-Windows:
+下载发布包后，解压并运行：
 
 ```powershell
 .\qwen2api.exe
 ```
 
-Linux / macOS:
+### Linux / macOS
+
+给执行权限后启动：
 
 ```bash
+chmod +x ./qwen2api
 ./qwen2api
 ```
 
-## 使用方式
+程序会自动读取根目录 `.env`。如果不存在，会自动生成默认模板。
 
-### 管理后台
+## 登录后台
 
-默认监听地址：
+默认地址：
 
 ```text
 http://127.0.0.1:3000
 ```
 
-进入页面后，使用 `API_KEY` 中的第一个 key 作为管理员 key 登录。
+登录方式：
 
-### OpenAI 兼容接口
+- 使用 `API_KEY` 中第一个 key 作为管理员 key
 
-聊天示例：
+## 常用接口
+
+### OpenAI Chat Completions
 
 ```bash
 curl http://127.0.0.1:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-admin-change-me" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3-235b-a22b",
+    "model": "qwen3-235b-a22b-thinking",
     "messages": [
       {"role": "user", "content": "你好"}
     ],
@@ -146,18 +172,9 @@ curl http://127.0.0.1:3000/v1/chat/completions \
   }'
 ```
 
-上传文件示例：
-
-```bash
-curl http://127.0.0.1:3000/v1/uploads \
-  -H "Authorization: Bearer sk-admin-change-me" \
-  -F "files=@demo.png"
-```
-
-### Anthropic Messages 兼容接口
+### Anthropic Messages
 
 支持 `x-api-key` 和 `Authorization: Bearer ...` 两种鉴权方式。
-支持 `anthropic-version` 请求头，兼容常见日期格式版本值。
 
 ```bash
 curl http://127.0.0.1:3000/v1/messages \
@@ -165,7 +182,7 @@ curl http://127.0.0.1:3000/v1/messages \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3-235b-a22b",
+    "model": "qwen3-235b-a22b-thinking",
     "max_tokens": 1024,
     "messages": [
       {"role": "user", "content": "你好"}
@@ -173,7 +190,7 @@ curl http://127.0.0.1:3000/v1/messages \
   }'
 ```
 
-Count tokens 示例：
+### Count Tokens
 
 ```bash
 curl http://127.0.0.1:3000/v1/messages/count_tokens \
@@ -189,26 +206,42 @@ curl http://127.0.0.1:3000/v1/messages/count_tokens \
   }'
 ```
 
-## 常用配置说明
+### 文件上传
+
+```bash
+curl http://127.0.0.1:3000/v1/uploads \
+  -H "Authorization: Bearer sk-admin-change-me" \
+  -F "files=@demo.png"
+```
+
+## 常用配置
 
 - `API_KEY`
-  API 访问密钥，多个用逗号分隔，第一个默认是管理员 key。
+  多个 key 用逗号分隔，第一个默认是管理员 key
 - `DATA_SAVE_MODE`
-  可选 `none`、`file`、`redis`。
+  可选 `none`、`file`、`redis`
 - `ACCOUNTS`
-  预置账号列表，格式 `email:password,email:password`。
-- `QWEN_CHAT_PROXY_URL`
-  上游 Qwen 地址。
-- `PROXY_URL`
-  可选代理地址。
-- `REDIS_URL`
-  Redis 存储地址，仅 `DATA_SAVE_MODE=redis` 时使用。
+  预置账号，格式 `email:password,email:password`
 - `SERVICE_PORT`
-  服务端口，默认 `3000`。
+  服务端口，默认 `3000`
+- `QWEN_CHAT_PROXY_URL`
+  上游地址，默认 `https://chat.qwen.ai`
+- `PROXY_URL`
+  可选代理地址
+- `REDIS_URL`
+  Redis 地址，仅 `DATA_SAVE_MODE=redis` 时需要
 
-## 开发检查
+## 运行建议
+
+- 管理后台和业务接口只暴露给可信环境
+- 管理员 key 与业务 key 分开使用
+- 如果放在反代后面，记得只开放必要端口
+- 如果账号频繁失效，优先检查并发、共享规模、出口 IP 与代理稳定性
+
+## 从源码启动
+
+如果你就是要自己编译运行：
 
 ```powershell
-go test ./...
-go build ./...
+go run ./cmd/qwen2api
 ```

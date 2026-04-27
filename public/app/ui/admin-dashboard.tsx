@@ -169,6 +169,25 @@ export function AdminDashboard() {
             </div>
           </header>
 
+          <section className="console-summary-strip">
+            <div className="hero-side-card">
+              <span>累计 Token</span>
+              <strong>{formatCompactNumber(state.overview?.analytics.totals.totalTokens)}</strong>
+            </div>
+            <div className="hero-side-card">
+              <span>当前 RPM</span>
+              <strong>{formatCompactNumber(state.overview?.analytics.rpm)}</strong>
+            </div>
+            <div className="hero-side-card">
+              <span>有效账号</span>
+              <strong>{formatCompactNumber(state.overview?.accounts.valid)}</strong>
+            </div>
+            <div className="hero-side-card">
+              <span>模型变体</span>
+              <strong>{formatCompactNumber(state.modelCounts.total)}</strong>
+            </div>
+          </section>
+
           <section className="console-panel-area">
             {state.activeTab === "overview" ? <OverviewTab overview={state.overview} modelCounts={state.modelCounts} /> : null}
 

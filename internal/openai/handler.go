@@ -632,10 +632,10 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	defer executed.Stream.Close()
 
 	if payload.Stream {
-		h.handleStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
+		h.handleStream(w, executed.Stream, executed.Model, statsModelName(executed.RequestedModel, executed.Model), executed.ToolNames, estimatedPromptTokens)
 		return
 	}
-	h.handleNonStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
+	h.handleNonStream(w, executed.Stream, executed.Model, statsModelName(executed.RequestedModel, executed.Model), executed.ToolNames, estimatedPromptTokens)
 }
 
 func shouldReplyHi(payload chatRequest) bool {
@@ -722,7 +722,7 @@ func (h *Handler) writeHiResponse(w http.ResponseWriter, model string, stream bo
 	}
 }
 
-func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
+func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model string, statsModel string, toolNames []string, estimatedPromptTokens int) {
 	setSSEHeaders(w)
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(body)
@@ -906,7 +906,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 		},
 	})
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
-	h.metrics.RecordModelUsage(model, promptTokens, completionTokens, totalTokens)
+	h.metrics.RecordModelUsage(statsModel, promptTokens, completionTokens, totalTokens)
 	h.logger.DebugModule("OPENAI", "stream completed model=%s final_content=%q finish_reason=%s usage=%s", model, contentBuilder.String(), func() string {
 		if toolCallsSent {
 			return "tool_calls"
@@ -919,7 +919,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 	}))
 }
 
-func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
+func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model string, statsModel string, toolNames []string, estimatedPromptTokens int) {
 	result, upstreamErr, err := h.readCompletedChat(body, model, toolNames)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "读取上游响应失败"})
@@ -956,7 +956,7 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 		"completion_tokens": result.CompletionTokens,
 		"total_tokens":      result.TotalTokens,
 	}))
-	h.metrics.RecordModelUsage(model, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
+	h.metrics.RecordModelUsage(statsModel, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),
 		"object":  "chat.completion",
@@ -1237,6 +1237,13 @@ func uniqueStrings(items []string) []string {
 		result = append(result, item)
 	}
 	return result
+}
+
+func statsModelName(requested string, resolved string) string {
+	if name := strings.TrimSpace(requested); name != "" {
+		return name
+	}
+	return strings.TrimSpace(resolved)
 }
 
 func normalizeSize(size string) string {

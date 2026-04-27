@@ -127,10 +127,10 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 	defer executed.Stream.Close()
 
 	if payload.Stream {
-		h.handleAnthropicStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
+		h.handleAnthropicStream(w, executed.Stream, executed.Model, statsModelName(executed.RequestedModel, executed.Model), executed.ToolNames, estimatedPromptTokens)
 		return
 	}
-	h.handleAnthropicNonStream(w, executed.Stream, executed.Model, executed.ToolNames, estimatedPromptTokens)
+	h.handleAnthropicNonStream(w, executed.Stream, executed.Model, statsModelName(executed.RequestedModel, executed.Model), executed.ToolNames, estimatedPromptTokens)
 }
 
 func (h *Handler) HandleAnthropicCountTokens(w http.ResponseWriter, r *http.Request) {
@@ -390,7 +390,7 @@ func convertAnthropicToolChoice(raw json.RawMessage) any {
 	return nil
 }
 
-func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
+func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader, model string, statsModel string, toolNames []string, estimatedPromptTokens int) {
 	result, upstreamErr, err := h.readCompletedChat(body, model, toolNames)
 	if err != nil {
 		writeAnthropicStatusError(w, http.StatusBadGateway, "读取上游响应失败")
@@ -413,7 +413,7 @@ func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader
 		estimateOpenAIOutputTokens(result.Content, result.ToolCalls),
 	)
 	messageID := anthropicMessageID()
-	h.metrics.RecordModelUsage(model, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
+	h.metrics.RecordModelUsage(statsModel, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
 	response := anthropicResponseMessage{
 		ID:           messageID,
 		Type:         "message",
@@ -430,7 +430,7 @@ func (h *Handler) handleAnthropicNonStream(w http.ResponseWriter, body io.Reader
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, model string, toolNames []string, estimatedPromptTokens int) {
+func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, model string, statsModel string, toolNames []string, estimatedPromptTokens int) {
 	setSSEHeaders(w)
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(body)
@@ -536,7 +536,7 @@ func (h *Handler) handleAnthropicStream(w http.ResponseWriter, body io.Reader, m
 	writeAnthropicSSE(w, "message_stop", map[string]any{
 		"type": "message_stop",
 	})
-	h.metrics.RecordModelUsage(model, promptTokens, completionTokens, totalTokens)
+	h.metrics.RecordModelUsage(statsModel, promptTokens, completionTokens, totalTokens)
 }
 
 func ensureAnthropicMessageStart(w io.Writer, state *anthropicStreamState, model string, promptTokens int) {

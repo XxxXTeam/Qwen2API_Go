@@ -444,6 +444,12 @@ textarea {
   gap: 18px;
 }
 
+.console-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .dashboard-topbar {
   display: block;
   margin: 0 auto 24px;
@@ -1124,12 +1130,40 @@ textarea {
 
 .model-summary-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
 .model-card {
   min-height: 200px;
+}
+
+.model-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.model-token-pill {
+  display: flex;
+  min-width: 110px;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+  padding: 12px 14px;
+}
+
+.model-token-pill span {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.model-token-pill strong {
+  font-size: 1.05rem;
+  line-height: 1.05;
 }
 
 .code-block {
@@ -1224,6 +1258,7 @@ textarea {
   }
 
   .console-header-meta,
+  .console-summary-strip,
   .model-summary-strip,
   .stats-grid,
   .dashboard-kpi-grid,
@@ -1259,6 +1294,7 @@ textarea {
   .dashboard-topbar,
   .section-title,
   .console-header-meta,
+  .console-summary-strip,
   .model-summary-strip,
   .stats-grid,
   .settings-overview-grid,
@@ -1310,6 +1346,10 @@ textarea {
 
   .app-table {
     min-width: 860px;
+  }
+
+  .model-card-head {
+    flex-direction: column;
   }
 
   .bar-chart {

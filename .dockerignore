@@ -1,0 +1,14 @@
+.git
+.github
+.codeartsdoer
+data
+logs
+dist
+qwen2api
+qwen2api.exe
+.env
+.env.*
+public/.next
+public/node_modules
+public/out
+**/.DS_Store

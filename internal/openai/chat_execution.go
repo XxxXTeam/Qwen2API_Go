@@ -23,9 +23,10 @@ type executedChatRequest struct {
 }
 
 type executedChat struct {
-	Model     string
-	ToolNames []string
-	Stream    io.ReadCloser
+	Model          string
+	RequestedModel string
+	ToolNames      []string
+	Stream         io.ReadCloser
 }
 
 type completedChat struct {
@@ -129,6 +130,7 @@ func (h *Handler) prepareChatRequest(ctx context.Context, payload executedChatRe
 	}
 
 	return preparedChatRequest{
+		RequestedModel:       strings.TrimSpace(payload.Model),
 		Model:                model,
 		ChatType:             chatType,
 		ThinkingEnabled:      thinkingEnabled,
@@ -187,9 +189,10 @@ func (h *Handler) sendChatWithSession(ctx context.Context, prepared preparedChat
 	h.accounts.ResetFailure(session.Email)
 	stream := withChatID(inspected.Stream, chatID)
 	return &executedChat{
-		Model:     prepared.Model,
-		ToolNames: prepared.ToolNames,
-		Stream:    stream,
+		Model:          prepared.Model,
+		RequestedModel: prepared.RequestedModel,
+		ToolNames:      prepared.ToolNames,
+		Stream:         stream,
 	}, http.StatusOK, nil
 }
 

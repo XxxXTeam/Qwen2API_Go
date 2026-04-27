@@ -256,7 +256,9 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	result := make([]map[string]any, 0, len(models))
 	for _, item := range models {
 		modelID := strings.TrimSpace(fmt.Sprint(item["id"]))
-		usage := usageByModel[modelID]
+		modelName := strings.TrimSpace(fmt.Sprint(item["name"]))
+		upstreamID := strings.TrimSpace(fmt.Sprint(item["upstream_id"]))
+		usage := mergeModelUsage(usageByModel, modelID, modelName, upstreamID)
 
 		enriched := make(map[string]any, len(item)+1)
 		for key, value := range item {
@@ -281,6 +283,26 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func mergeModelUsage(snapshot map[string]metrics.ModelUsage, aliases ...string) metrics.ModelUsage {
+	seen := make(map[string]struct{}, len(aliases))
+	usage := metrics.ModelUsage{}
+	for _, alias := range aliases {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		if _, ok := seen[alias]; ok {
+			continue
+		}
+		seen[alias] = struct{}{}
+		item := snapshot[alias]
+		usage.PromptTokens += item.PromptTokens
+		usage.CompletionTokens += item.CompletionTokens
+		usage.TotalTokens += item.TotalTokens
+	}
+	return usage
 }
 
 func (h *Handler) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {

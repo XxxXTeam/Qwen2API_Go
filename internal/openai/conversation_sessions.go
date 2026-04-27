@@ -19,6 +19,7 @@ type ConversationSessionService struct {
 }
 
 type preparedChatRequest struct {
+	RequestedModel       string
 	Model                string
 	ChatType             string
 	ThinkingEnabled      bool

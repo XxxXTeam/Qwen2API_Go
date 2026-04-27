@@ -12,6 +12,7 @@ export function ModelsTab({
   keyword: string;
   setKeyword: (value: string) => void;
 }) {
+  const activeModels = models.filter((model) => (model.usage?.totalTokens || 0) > 0).length;
   const totals = models.reduce(
     (acc, model) => {
       acc.prompt += model.usage?.promptTokens || 0;
@@ -38,6 +39,10 @@ export function ModelsTab({
             <strong>{formatCompactNumber(models.length)}</strong>
           </div>
           <div className="overview-kpi-item">
+            <span>活跃变体</span>
+            <strong>{formatCompactNumber(activeModels)}</strong>
+          </div>
+          <div className="overview-kpi-item">
             <span>累计输入</span>
             <strong>{formatCompactNumber(totals.prompt)}</strong>
           </div>
@@ -54,8 +59,16 @@ export function ModelsTab({
           {models.map((model) => (
             <Card className="panel model-card" key={model.id}>
               <Card.Header className="panel-header">
-                <Card.Title>{model.id}</Card.Title>
-                <Card.Description>{model.display_name || model.name || model.upstream_id || "-"}</Card.Description>
+                <div className="model-card-head">
+                  <div className="stack-sm">
+                    <Card.Title>{model.id}</Card.Title>
+                    <Card.Description>{model.display_name || model.name || model.upstream_id || "-"}</Card.Description>
+                  </div>
+                  <div className="model-token-pill">
+                    <span>总 Token</span>
+                    <strong>{formatCompactNumber(model.usage?.totalTokens)}</strong>
+                  </div>
+                </div>
               </Card.Header>
               <Card.Content className="stack-sm">
                 <div className="chips-inline">
@@ -66,6 +79,7 @@ export function ModelsTab({
                   {model.usage?.totalTokens ? <Chip color="success" variant="soft">活跃</Chip> : null}
                 </div>
                 <div className="kv-stack">
+                  <div><span>请求名</span><strong>{model.name || model.id}</strong></div>
                   <div><span>上游 ID</span><strong>{model.upstream_id || "-"}</strong></div>
                   <div><span>显示名</span><strong>{model.display_name || "-"}</strong></div>
                   <div><span>输入 Token</span><strong>{formatCompactNumber(model.usage?.promptTokens)}</strong></div>
