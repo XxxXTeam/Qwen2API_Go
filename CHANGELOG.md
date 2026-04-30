@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.4.0...v0.5.0) (2026-04-30)
+
+
+### Features
+
+* add runtime config hot reload ([8f764e8](https://github.com/XxxXTeam/Qwen2API_Go/commit/8f764e895e1c9fb2adaed8c480418bc24332d01d))
+
+
+### Bug Fixes
+
+* toolcall and rm sb huawei ([6e579f8](https://github.com/XxxXTeam/Qwen2API_Go/commit/6e579f8a02708511e11522962f9edf7d90133056))
+* use env guards for docker workflow secrets ([fe6921c](https://github.com/XxxXTeam/Qwen2API_Go/commit/fe6921c92508ebf564d76fbefa5eb95cc20a13c9))
+
 ## [0.4.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.3.0...v0.4.0) (2026-04-27)
 
 
