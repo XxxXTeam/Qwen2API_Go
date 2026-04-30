@@ -231,6 +231,22 @@ func buildFeatureConfig(thinkingEnabled bool) map[string]any {
 	return config
 }
 
+func isThinkingPhase(phase string) bool {
+	switch strings.TrimSpace(phase) {
+	case "think", "thinking_summary":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) shouldExposeThinking() bool {
+	if h == nil || h.runtime == nil {
+		return false
+	}
+	return h.runtime.Snapshot().OutThink
+}
+
 func extractThinkingSummary(extra map[string]any) string {
 	if extra == nil {
 		return ""
@@ -729,6 +745,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 
 	messageID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	exposeThinking := h.shouldExposeThinking()
 	thinkingStarted := false
 	thinkingEnded := false
 	promptTokens, completionTokens, totalTokens := 0, 0, 0
@@ -773,11 +790,14 @@ func (h *Handler) handleStream(w http.ResponseWriter, body io.Reader, model stri
 		if content == "" {
 			continue
 		}
-		if (phase == "think" || phase == "thinking_summary") && !thinkingStarted {
+		if isThinkingPhase(phase) && !exposeThinking {
+			continue
+		}
+		if isThinkingPhase(phase) && !thinkingStarted {
 			thinkingStarted = true
 			content = "<think>\n\n" + content
 		}
-		if phase == "answer" && thinkingStarted && !thinkingEnded {
+		if phase == "answer" && exposeThinking && thinkingStarted && !thinkingEnded {
 			thinkingEnded = true
 			content = "\n\n</think>\n" + content
 		}
@@ -975,7 +995,7 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, body io.Reader, model s
 	})
 }
 
-func parseChatCompletionContent(rawBody []byte) (string, int, int, int) {
+func parseChatCompletionContent(rawBody []byte, exposeThinking bool) (string, int, int, int) {
 	payloads := make([]map[string]any, 0)
 	trimmed := strings.TrimSpace(string(rawBody))
 
@@ -1007,11 +1027,14 @@ func parseChatCompletionContent(rawBody []byte) (string, int, int, int) {
 				continue
 			}
 			phase := extractChoicePhase(choice)
-			if (phase == "think" || phase == "thinking_summary") && !thinkingStarted {
+			if isThinkingPhase(phase) && !exposeThinking {
+				continue
+			}
+			if isThinkingPhase(phase) && !thinkingStarted {
 				thinkingStarted = true
 				content = "<think>\n\n" + content
 			}
-			if phase == "answer" && thinkingStarted && !thinkingEnded {
+			if phase == "answer" && exposeThinking && thinkingStarted && !thinkingEnded {
 				thinkingEnded = true
 				content = "\n\n</think>\n" + content
 			}

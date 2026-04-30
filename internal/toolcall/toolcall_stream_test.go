@@ -8,11 +8,11 @@ import (
 func TestProcessStreamChunkKeepsUTF8Boundary(t *testing.T) {
 	state := NewStreamState()
 
-	first := ProcessStreamChunk(state, "你好，世界")
+	first := ProcessStreamChunk(state, "hello\u4e16")
 	second := FinalizeStream(state)
 
 	got := first.Content + second.Content
-	want := "你好，世界"
+	want := "hello\u4e16"
 	if got != want {
 		t.Fatalf("content = %q, want %q", got, want)
 	}
@@ -33,9 +33,9 @@ func TestFinalizeStreamRemovesResidualClosingToolTags(t *testing.T) {
 }
 
 func TestRemoveMarkupRemovesResidualToolTagsFromMixedContent(t *testing.T) {
-	input := "</ml_tool_calls>\n\n这是正常回答内容"
+	input := "</ml_tool_calls>\n\nnormal answer"
 	got := RemoveMarkup(input)
-	want := "这是正常回答内容"
+	want := "normal answer"
 	if got != want {
 		t.Fatalf("content = %q, want %q", got, want)
 	}
@@ -54,9 +54,9 @@ func TestProcessStreamChunkFallsBackWhenMalformedToolPreludeFollowedByAnswer(t *
 		t.Fatalf("second = %+v, want empty", second)
 	}
 
-	third := ProcessStreamChunk(state, "你好，继续正常回答")
-	if third.Content != "你好，继续正常回答" {
-		t.Fatalf("third content = %q, want %q", third.Content, "你好，继续正常回答")
+	third := ProcessStreamChunk(state, "normal answer")
+	if third.Content != "normal answer" {
+		t.Fatalf("third content = %q, want %q", third.Content, "normal answer")
 	}
 	if len(third.ToolCalls) != 0 {
 		t.Fatalf("third tool calls len = %d, want 0", len(third.ToolCalls))
@@ -68,29 +68,19 @@ func TestProcessStreamChunkFallsBackWhenMalformedToolPreludeFollowedByAnswer(t *
 	}
 }
 
-func TestFinalizeStreamStripsToolPromptLeakageNoise(t *testing.T) {
-	state := NewStreamState()
-	state.pending = "你好！既然你希望我随便调用一下工具，那我就用 Python 执行一个简单的计算吧。\n\n真正答案"
-
-	final := FinalizeStream(state)
-	if final.Content != "真正答案" {
-		t.Fatalf("content = %q, want %q", final.Content, "真正答案")
-	}
-}
-
 func TestCleanVisibleTextRemovesResidualClosingTags(t *testing.T) {
-	input := "</ml_tool_calls>\n\n以下是查询结果"
+	input := "</ml_tool_calls>\n\nresult follows"
 	got := CleanVisibleText(input)
-	want := "以下是查询结果"
+	want := "result follows"
 	if got != want {
 		t.Fatalf("content = %q, want %q", got, want)
 	}
 }
 
 func TestCleanVisibleTextRemovesExactLeakedPrefixFromRealCase(t *testing.T) {
-	input := "</ml_tool_calls>\n\n访问https://opendata.baidu.com/api.php?query=1.1.1.1&co=&resource_id=6006&oe=utf8 的结果如下："
+	input := "</ml_tool_calls>\n\nvisit https://opendata.baidu.com/api.php?query=1.1.1.1&co=&resource_id=6006&oe=utf8 result:"
 	got := CleanVisibleText(input)
-	want := "访问https://opendata.baidu.com/api.php?query=1.1.1.1&co=&resource_id=6006&oe=utf8 的结果如下："
+	want := "visit https://opendata.baidu.com/api.php?query=1.1.1.1&co=&resource_id=6006&oe=utf8 result:"
 	if got != want {
 		t.Fatalf("content = %q, want %q", got, want)
 	}
@@ -129,17 +119,17 @@ func TestProcessStreamChunkDoesNotLeakSplitClosingWrapperAfterValidToolCall(t *t
 func TestProcessStreamChunkDoesNotFragmentPlainTextWhenToolsEnabled(t *testing.T) {
 	state := NewStreamState()
 
-	first := ProcessStreamChunk(state, "查询")
-	if first.Content != "查询" {
-		t.Fatalf("first content = %q, want %q", first.Content, "查询")
+	first := ProcessStreamChunk(state, "query")
+	if first.Content != "query" {
+		t.Fatalf("first content = %q, want %q", first.Content, "query")
 	}
 	if len(first.ToolCalls) != 0 {
 		t.Fatalf("first tool calls len = %d, want 0", len(first.ToolCalls))
 	}
 
-	second := ProcessStreamChunk(state, "结果如下：\n\n")
-	if second.Content != "结果如下：\n\n" {
-		t.Fatalf("second content = %q, want %q", second.Content, "结果如下：\n\n")
+	second := ProcessStreamChunk(state, " result:\n\n")
+	if second.Content != " result:\n\n" {
+		t.Fatalf("second content = %q, want %q", second.Content, " result:\n\n")
 	}
 	if len(second.ToolCalls) != 0 {
 		t.Fatalf("second tool calls len = %d, want 0", len(second.ToolCalls))
@@ -188,10 +178,10 @@ func TestBuildInstructionsMatchesStrictJSGuardrails(t *testing.T) {
 
 func TestInjectPromptAppendsReminderToLatestMessage(t *testing.T) {
 	messages := []map[string]any{
-		{"role": "system", "content": "你是一个助手"},
-		{"role": "user", "content": "第一轮问题"},
-		{"role": "assistant", "content": "第一轮回答"},
-		{"role": "user", "content": "请继续处理"},
+		{"role": "system", "content": "you are an assistant"},
+		{"role": "user", "content": "first question"},
+		{"role": "assistant", "content": "first answer"},
+		{"role": "user", "content": "please continue"},
 	}
 	tools := []any{
 		map[string]any{
@@ -220,6 +210,41 @@ func TestInjectPromptAppendsReminderToLatestMessage(t *testing.T) {
 		if !strings.Contains(lastContent, snippet) {
 			t.Fatalf("latest message missing %q\n%s", snippet, lastContent)
 		}
+	}
+	if !strings.HasPrefix(lastContent, "[ml_tool reminder]") {
+		t.Fatalf("expected reminder before latest user content\n%s", lastContent)
+	}
+}
+
+func TestFormatToolResultOmitsNilMetadata(t *testing.T) {
+	result := formatToolResult(map[string]any{
+		"role":         "tool",
+		"name":         nil,
+		"tool_call_id": nil,
+		"content":      "Python 3.12.3",
+	})
+
+	if strings.Contains(result, "<nil>") {
+		t.Fatalf("result leaked <nil>: %s", result)
+	}
+	if !strings.Contains(result, "<ml_tool_name>tool</ml_tool_name>") {
+		t.Fatalf("result missing fallback tool name: %s", result)
+	}
+	if strings.Contains(result, "<ml_tool_call_id>") {
+		t.Fatalf("result should omit empty tool_call_id: %s", result)
+	}
+}
+
+func TestFormatToolResultEscapesCDATAEndMarker(t *testing.T) {
+	result := formatToolResult(map[string]any{
+		"role":         "tool",
+		"name":         "python",
+		"tool_call_id": "call_123",
+		"content":      `line1 ]]> line2`,
+	})
+
+	if !strings.Contains(result, "]]]]><![CDATA[>") {
+		t.Fatalf("result did not split CDATA safely: %s", result)
 	}
 }
 

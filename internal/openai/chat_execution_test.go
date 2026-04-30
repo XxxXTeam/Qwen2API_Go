@@ -44,4 +44,26 @@ func TestNormalizeMessagesKeepsToolReminderNearLatestTurn(t *testing.T) {
 	if !strings.Contains(content, "现在请查询天气") {
 		t.Fatalf("upstream content missing latest user turn")
 	}
+	if strings.Index(content, "[ml_tool reminder]") > strings.Index(content, "现在请查询天气") {
+		t.Fatalf("expected tool reminder before latest user turn, got %q", content)
+	}
+}
+
+func TestSelectIncrementalTailMessagesKeepsTrailingToolResultsBeforeLatestTurn(t *testing.T) {
+	selected := selectIncrementalTailMessages([]map[string]any{
+		{"role": "user", "content": "第一轮问题"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_1"}}},
+		{"role": "tool", "name": "weather_lookup", "content": "晴天"},
+		{"role": "user", "content": "请基于工具结果总结"},
+	})
+
+	if len(selected) != 2 {
+		t.Fatalf("selected len = %d, want 2", len(selected))
+	}
+	if role := strings.TrimSpace(selected[0]["role"].(string)); role != "tool" {
+		t.Fatalf("first role = %q, want %q", role, "tool")
+	}
+	if role := strings.TrimSpace(selected[1]["role"].(string)); role != "user" {
+		t.Fatalf("second role = %q, want %q", role, "user")
+	}
 }

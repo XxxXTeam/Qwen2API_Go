@@ -74,9 +74,41 @@ func TestHandleStreamDoesNotFragmentWhenNoTools(t *testing.T) {
 	}
 }
 
-func TestHandleStreamIncludesThinkingSummaryContent(t *testing.T) {
+func TestHandleStreamHidesThinkingSummaryByDefault(t *testing.T) {
 	handler := &Handler{
 		cfg:     config.Config{},
+		metrics: metrics.NewDashboardStats(),
+		logger:  logging.New(false),
+	}
+
+	upstream := strings.Join([]string{
+		`data: {"choices":[{"delta":{"role":"assistant","content":"","phase":"thinking_summary","extra":{"summary_title":{"content":["回应用户的问候并主动提供帮助"]},"summary_thought":{"content":["我感知到用户重复发送了简单的问候。"]}}}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"role":"assistant","content":"你好","phase":"answer"}}]}`,
+		"",
+		`data: [DONE]`,
+		"",
+	}, "\n")
+
+	recorder := httptest.NewRecorder()
+	handler.handleStream(recorder, strings.NewReader(upstream), "qwen3.6-plus", "qwen3.6-plus", nil, 1)
+
+	body := recorder.Body.String()
+	if strings.Contains(body, "回应用户的问候并主动提供帮助") || strings.Contains(body, "我感知到用户重复发送了简单的问候。") {
+		t.Fatalf("stream body leaked thinking summary: %s", body)
+	}
+	if strings.Contains(body, "\\u003cthink\\u003e") || strings.Contains(body, "\\u003c/think\\u003e") {
+		t.Fatalf("stream body leaked think tags: %s", body)
+	}
+	if !strings.Contains(body, "你好") {
+		t.Fatalf("stream body missing answer: %s", body)
+	}
+}
+
+func TestHandleStreamIncludesThinkingSummaryWhenEnabled(t *testing.T) {
+	handler := &Handler{
+		cfg:     config.Config{},
+		runtime: config.NewRuntime(config.Config{OutThink: true}),
 		metrics: metrics.NewDashboardStats(),
 		logger:  logging.New(false),
 	}
@@ -120,7 +152,7 @@ func TestHandleChatCompletionRepliesHiStream(t *testing.T) {
 	if !strings.Contains(body, `"object":"chat.completion.chunk"`) {
 		t.Fatalf("body missing chunk object: %s", body)
 	}
-	if !strings.Contains(body, `嘿，来啦！今天怎么样？`) {
+	if !strings.Contains(body, `来啦！今天怎么样？`) {
 		t.Fatalf("body missing content: %s", body)
 	}
 	if !strings.Contains(body, `"finish_reason":"stop"`) {

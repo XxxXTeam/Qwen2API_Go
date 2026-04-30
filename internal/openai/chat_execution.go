@@ -124,7 +124,7 @@ func (h *Handler) prepareChatRequest(ctx context.Context, payload executedChatRe
 
 	lastUpstreamMessages := fullUpstreamMessages
 	if len(payload.Messages) > 0 && len(expandedMessages) > 1 {
-		lastRaw := cloneMessageList(payload.Messages[len(payload.Messages)-1:])
+		lastRaw := selectIncrementalTailMessages(payload.Messages)
 		lastExpanded := toolcall.NormalizeToolMessagesForExecution(lastRaw)
 		lastUpstreamMessages = normalizeMessages(lastExpanded, chatType, thinkingEnabled)
 	}
@@ -140,6 +140,18 @@ func (h *Handler) prepareChatRequest(ctx context.Context, payload executedChatRe
 		ContextHash:          computeContextHash(model, chatType, injection.ToolNames, expandedMessages),
 		ToolNames:            injection.ToolNames,
 	}
+}
+
+func selectIncrementalTailMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	start := len(messages) - 1
+	for start > 0 && strings.EqualFold(strings.TrimSpace(fmt.Sprint(messages[start-1]["role"])), "tool") {
+		start--
+	}
+	return cloneMessageList(messages[start:])
 }
 
 func (h *Handler) sendChatWithSession(ctx context.Context, prepared preparedChatRequest, session storage.Account, existingChatID string, incremental bool) (*executedChat, int, error) {
@@ -240,7 +252,7 @@ func (h *Handler) readCompletedChat(body io.Reader, model string, toolNames []st
 		return completedChat{}, upstreamErr, nil
 	}
 
-	fullContent, promptTokens, completionTokens, totalTokens := parseChatCompletionContent(rawBody)
+	fullContent, promptTokens, completionTokens, totalTokens := parseChatCompletionContent(rawBody, h.shouldExposeThinking())
 	h.logger.DebugModule("OPENAI", "non-stream parsed model=%s full_content=%q usage=%s", model, fullContent, debugJSON(map[string]any{
 		"prompt_tokens":     promptTokens,
 		"completion_tokens": completionTokens,

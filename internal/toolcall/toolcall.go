@@ -187,7 +187,7 @@ func appendReminderToContent(content any, reminder string) any {
 		if strings.TrimSpace(value) == "" {
 			return reminder
 		}
-		return strings.TrimSpace(value) + "\n\n" + reminder
+		return reminder + "\n\n" + strings.TrimSpace(value)
 	case []any:
 		hasReminder := false
 		items := make([]any, 0, len(value)+1)
@@ -201,8 +201,7 @@ func appendReminderToContent(content any, reminder string) any {
 		if hasReminder {
 			return value
 		}
-		items = append(items, map[string]any{"type": "text", "text": reminder})
-		return items
+		return append([]any{map[string]any{"type": "text", "text": reminder}}, items...)
 	default:
 		return reminder
 	}
@@ -568,11 +567,11 @@ func formatAssistantToolCalls(toolCalls []any) string {
 }
 
 func formatToolResult(message map[string]any) string {
-	name := strings.TrimSpace(fmt.Sprint(message["name"]))
+	name := printableText(message["name"])
 	if name == "" {
 		name = "tool"
 	}
-	callID := strings.TrimSpace(fmt.Sprint(message["tool_call_id"]))
+	callID := printableText(message["tool_call_id"])
 	content := normalizeMessageTextContent(message["content"])
 	lines := []string{
 		"<ml_tool_result>",
@@ -581,7 +580,7 @@ func formatToolResult(message map[string]any) string {
 	if callID != "" {
 		lines = append(lines, fmt.Sprintf("  <ml_tool_call_id>%s</ml_tool_call_id>", escapeXML(callID)))
 	}
-	lines = append(lines, fmt.Sprintf("  <content><![CDATA[%s]]></content>", content))
+	lines = append(lines, fmt.Sprintf("  <content><![CDATA[%s]]></content>", escapeCDATA(content)))
 	lines = append(lines, "</ml_tool_result>")
 	return strings.Join(lines, "\n")
 }
@@ -589,7 +588,7 @@ func formatToolResult(message map[string]any) string {
 func normalizeMessageTextContent(content any) string {
 	switch value := content.(type) {
 	case string:
-		return value
+		return sanitizePlaceholderText(value)
 	case []any:
 		parts := make([]string, 0)
 		for _, raw := range value {
@@ -598,13 +597,46 @@ func normalizeMessageTextContent(content any) string {
 				continue
 			}
 			if strings.EqualFold(fmt.Sprint(item["type"]), "text") {
-				parts = append(parts, fmt.Sprint(item["text"]))
+				if text := printableText(item["text"]); text != "" {
+					parts = append(parts, text)
+				}
 			}
 		}
 		return strings.Join(parts, "\n")
+	case map[string]any:
+		if text := printableText(value["text"]); text != "" {
+			return text
+		}
+		if text := printableText(value["content"]); text != "" {
+			return text
+		}
+		raw, _ := json.Marshal(value)
+		return sanitizePlaceholderText(string(raw))
 	default:
 		return ""
 	}
+}
+
+func printableText(value any) string {
+	if value == nil {
+		return ""
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	return sanitizePlaceholderText(text)
+}
+
+func sanitizePlaceholderText(text string) string {
+	trimmed := strings.TrimSpace(text)
+	switch trimmed {
+	case "", "<nil>", "nil", "null", "undefined":
+		return ""
+	default:
+		return text
+	}
+}
+
+func escapeCDATA(text string) string {
+	return strings.ReplaceAll(text, "]]>", "]]]]><![CDATA[>")
 }
 
 func fallbackText(value, fallback string) string {
