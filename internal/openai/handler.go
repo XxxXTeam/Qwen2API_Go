@@ -56,6 +56,21 @@ type upstreamMessage struct {
 	FeatureConfig any    `json:"feature_config"`
 }
 
+type thinkingMode string
+
+const (
+	thinkingModeFast     thinkingMode = "Fast"
+	thinkingModeThinking thinkingMode = "Thinking"
+)
+
+func (m thinkingMode) enabled() bool {
+	return m == thinkingModeThinking
+}
+
+type chatReasoning struct {
+	Effort any `json:"effort"`
+}
+
 func mergeSystemMessages(messages []map[string]any) []map[string]any {
 	systemTexts := make([]string, 0)
 	result := make([]map[string]any, 0, len(messages))
@@ -109,21 +124,62 @@ func chatTypeForModel(model string) string {
 	}
 }
 
-func isThinkingEnabled(model string, raw any) bool {
-	if strings.Contains(model, "-thinking") {
-		return true
-	}
-	if strings.Contains(model, "-fast") {
-		return false
-	}
+func parseEnableThinking(raw any) (bool, bool) {
 	switch v := raw.(type) {
 	case bool:
-		return v
+		return v, true
 	case string:
-		return strings.EqualFold(v, "true")
-	default:
-		return false
+		normalized := strings.ToLower(strings.TrimSpace(v))
+		switch normalized {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		}
 	}
+	return false, false
+}
+
+func parseReasoningEffort(raw any) (thinkingMode, bool) {
+	effort, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "none", "minimal", "low":
+		return thinkingModeFast, true
+	case "medium", "high", "xhigh":
+		return thinkingModeThinking, true
+	default:
+		return "", false
+	}
+}
+
+func resolveThinkingMode(model string, reasoningEffort any, nestedReasoningEffort any, enableThinking any) thinkingMode {
+	if strings.Contains(model, "-thinking") {
+		return thinkingModeThinking
+	}
+	if strings.Contains(model, "-fast") {
+		return thinkingModeFast
+	}
+	if mode, ok := parseReasoningEffort(reasoningEffort); ok {
+		return mode
+	}
+	if mode, ok := parseReasoningEffort(nestedReasoningEffort); ok {
+		return mode
+	}
+	if enabled, ok := parseEnableThinking(enableThinking); ok {
+		if enabled {
+			return thinkingModeThinking
+		}
+		return thinkingModeFast
+	}
+	return thinkingModeFast
+}
+
+func isThinkingEnabled(model string, raw any) bool {
+	return resolveThinkingMode(model, nil, nil, raw).enabled()
 }
 
 func splitModelSuffix(model string) string {
@@ -214,19 +270,17 @@ func (h *Handler) ResolveModel(ctx context.Context, requested string, chatType s
 	return base, nil
 }
 
-func buildFeatureConfig(thinkingEnabled bool) map[string]any {
+func buildFeatureConfig(mode thinkingMode) map[string]any {
 	config := map[string]any{
-		"thinking_enabled": thinkingEnabled,
+		"thinking_enabled": mode.enabled(),
 		"output_schema":    "phase",
 		"research_mode":    "normal",
 		"auto_thinking":    false,
 		"auto_search":      true,
 	}
-	if thinkingEnabled {
-		config["thinking_mode"] = "Thinking"
+	config["thinking_mode"] = string(mode)
+	if mode.enabled() {
 		config["thinking_format"] = "summary"
-	} else {
-		config["thinking_mode"] = "Fast"
 	}
 	return config
 }
@@ -294,7 +348,7 @@ func extractDeltaContent(delta map[string]any) string {
 	return extractThinkingSummary(extra)
 }
 
-func normalizeMessages(messages []map[string]any, chatType string, thinkingEnabled bool) []map[string]any {
+func normalizeMessages(messages []map[string]any, chatType string, mode thinkingMode) []map[string]any {
 	messages = mergeSystemMessages(messages)
 	if len(messages) == 0 {
 		return []map[string]any{{
@@ -334,7 +388,7 @@ func normalizeMessages(messages []map[string]any, chatType string, thinkingEnabl
 			"content":        normalized,
 			"chat_type":      chatType,
 			"extra":          map[string]any{},
-			"feature_config": buildFeatureConfig(thinkingEnabled),
+			"feature_config": buildFeatureConfig(mode),
 		}}
 	}
 
@@ -366,7 +420,7 @@ func normalizeMessages(messages []map[string]any, chatType string, thinkingEnabl
 		"content":        lastContent,
 		"chat_type":      chatType,
 		"extra":          map[string]any{},
-		"feature_config": buildFeatureConfig(thinkingEnabled),
+		"feature_config": buildFeatureConfig(mode),
 	}}
 }
 
@@ -546,14 +600,16 @@ func convertContent(content any) any {
 }
 
 type chatRequest struct {
-	Model          string           `json:"model"`
-	Messages       []map[string]any `json:"messages"`
-	Stream         bool             `json:"stream"`
-	EnableThinking any              `json:"enable_thinking"`
-	ThinkingBudget any              `json:"thinking_budget"`
-	Tools          any              `json:"tools"`
-	ToolChoice     any              `json:"tool_choice"`
-	Size           string           `json:"size"`
+	Model           string           `json:"model"`
+	Messages        []map[string]any `json:"messages"`
+	Stream          bool             `json:"stream"`
+	EnableThinking  any              `json:"enable_thinking"`
+	ReasoningEffort any              `json:"reasoning_effort"`
+	Reasoning       *chatReasoning   `json:"reasoning"`
+	ThinkingBudget  any              `json:"thinking_budget"`
+	Tools           any              `json:"tools"`
+	ToolChoice      any              `json:"tool_choice"`
+	Size            string           `json:"size"`
 }
 
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
@@ -634,12 +690,19 @@ func (h *Handler) HandleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	executed, status, err := h.executeChatRequest(r.Context(), executedChatRequest{
-		Model:          payload.Model,
-		Messages:       payload.Messages,
-		EnableThinking: payload.EnableThinking,
-		Tools:          payload.Tools,
-		ToolChoice:     payload.ToolChoice,
-		Size:           payload.Size,
+		Model:           payload.Model,
+		Messages:        payload.Messages,
+		EnableThinking:  payload.EnableThinking,
+		ReasoningEffort: payload.ReasoningEffort,
+		NestedReasoningEffort: func() any {
+			if payload.Reasoning == nil {
+				return nil
+			}
+			return payload.Reasoning.Effort
+		}(),
+		Tools:      payload.Tools,
+		ToolChoice: payload.ToolChoice,
+		Size:       payload.Size,
 	})
 	if err != nil {
 		writeJSON(w, status, map[string]any{"error": err.Error()})
@@ -1433,7 +1496,7 @@ func (h *Handler) generateAsset(ctx context.Context, requestedModel, chatType, s
 	if err != nil {
 		return "", err
 	}
-	normalizedMessages := normalizeMessages(messages, chatType, false)
+	normalizedMessages := normalizeMessages(messages, chatType, thinkingModeFast)
 	normalizedMessages, err = h.uploadInlineMedia(ctx, session.Token, normalizedMessages)
 	if err != nil {
 		return "", err

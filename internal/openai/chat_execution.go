@@ -14,12 +14,14 @@ import (
 )
 
 type executedChatRequest struct {
-	Model          string
-	Messages       []map[string]any
-	EnableThinking any
-	Tools          any
-	ToolChoice     any
-	Size           string
+	Model                 string
+	Messages              []map[string]any
+	EnableThinking        any
+	ReasoningEffort       any
+	NestedReasoningEffort any
+	Tools                 any
+	ToolChoice            any
+	Size                  string
 }
 
 type executedChat struct {
@@ -117,23 +119,23 @@ func (h *Handler) executeChatRequest(ctx context.Context, payload executedChatRe
 func (h *Handler) prepareChatRequest(ctx context.Context, payload executedChatRequest) preparedChatRequest {
 	chatType := chatTypeForModel(payload.Model)
 	model, _ := h.ResolveModel(ctx, payload.Model, chatType)
-	thinkingEnabled := isThinkingEnabled(payload.Model, payload.EnableThinking)
+	thinkingMode := resolveThinkingMode(payload.Model, payload.ReasoningEffort, payload.NestedReasoningEffort, payload.EnableThinking)
 	injection := toolcall.InjectPrompt(payload.Messages, payload.Tools, payload.ToolChoice)
 	expandedMessages := cloneMessageList(injection.Messages)
-	fullUpstreamMessages := normalizeMessages(cloneMessageList(expandedMessages), chatType, thinkingEnabled)
+	fullUpstreamMessages := normalizeMessages(cloneMessageList(expandedMessages), chatType, thinkingMode)
 
 	lastUpstreamMessages := fullUpstreamMessages
 	if len(payload.Messages) > 0 && len(expandedMessages) > 1 {
 		lastRaw := selectIncrementalTailMessages(payload.Messages)
 		lastExpanded := toolcall.NormalizeToolMessagesForExecution(lastRaw)
-		lastUpstreamMessages = normalizeMessages(lastExpanded, chatType, thinkingEnabled)
+		lastUpstreamMessages = normalizeMessages(lastExpanded, chatType, thinkingMode)
 	}
 
 	return preparedChatRequest{
 		RequestedModel:       strings.TrimSpace(payload.Model),
 		Model:                model,
 		ChatType:             chatType,
-		ThinkingEnabled:      thinkingEnabled,
+		ThinkingMode:         thinkingMode,
 		ExpandedMessages:     expandedMessages,
 		FullUpstreamMessages: fullUpstreamMessages,
 		LastUpstreamMessages: lastUpstreamMessages,

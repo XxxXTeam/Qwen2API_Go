@@ -25,7 +25,7 @@ func TestNormalizeMessagesKeepsToolReminderNearLatestTurn(t *testing.T) {
 			},
 		},
 	}, "auto")
-	normalized := normalizeMessages(cloneMessageList(injected.Messages), "t2t", false)
+	normalized := normalizeMessages(cloneMessageList(injected.Messages), "t2t", thinkingModeFast)
 	if len(normalized) != 1 {
 		t.Fatalf("normalized len = %d, want 1", len(normalized))
 	}

@@ -6,13 +6,16 @@ import { apiRequest } from "../api";
 import type { ChatCompletionResponse, ModelItem } from "../types";
 import { EndpointItem } from "./primitives";
 
+const reasoningEffortOptions = ["", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
+
 export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem[] }) {
   const availableModels = useMemo(() => models.map((item) => item.id), [models]);
   const [model, setModel] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState("你是一个用于后台调试的助手，请直接、简洁回答。");
+  const [systemPrompt, setSystemPrompt] = useState("你是一个用于后台调试的助手，请直接、简洁地回答。");
   const [message, setMessage] = useState("你好，请简单介绍一下你自己。");
   const [temperature, setTemperature] = useState("0.7");
   const [maxTokens, setMaxTokens] = useState("1024");
+  const [reasoningEffort, setReasoningEffort] = useState<(typeof reasoningEffortOptions)[number]>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ChatCompletionResponse | null>(null);
@@ -36,17 +39,22 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
       }
       messages.push({ role: "user", content: message.trim() });
 
+      const body: Record<string, unknown> = {
+        model: selectedModel,
+        stream: false,
+        temperature: Number(temperature) || 0,
+        max_tokens: Number(maxTokens) || 1024,
+        messages,
+      };
+      if (reasoningEffort) {
+        body.reasoning_effort = reasoningEffort;
+      }
+
       const response = await apiRequest<ChatCompletionResponse>(
         "/v1/chat/completions",
         {
           method: "POST",
-          body: JSON.stringify({
-            model: selectedModel,
-            stream: false,
-            temperature: Number(temperature) || 0,
-            max_tokens: Number(maxTokens) || 1024,
-            messages,
-          }),
+          body: JSON.stringify(body),
         },
         apiKey,
       );
@@ -67,7 +75,7 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
         <div className="admin-card-header">
           <div>
             <h3>对话调试台</h3>
-            <p>选择真实模型并直接发起 /v1/chat/completions 请求，用当前登录 Key 调试对话结果</p>
+            <p>选择真实模型并直接发起 /v1/chat/completions 请求，用当前登录 Key 调试对话结果。</p>
           </div>
         </div>
         <div className="admin-card-body flex flex-col gap-5">
@@ -89,6 +97,23 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
             <div className="admin-form-group">
               <label>Max Tokens</label>
               <Input type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} />
+            </div>
+            <div className="admin-form-group">
+              <label>Reasoning Effort</label>
+              <select
+                className="admin-select"
+                value={reasoningEffort}
+                onChange={(e) => setReasoningEffort(e.target.value as (typeof reasoningEffortOptions)[number])}
+              >
+                <option value="">default</option>
+                {reasoningEffortOptions
+                  .filter((item) => item)
+                  .map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+              </select>
             </div>
           </div>
 
@@ -135,7 +160,7 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
           </div>
 
           {error ? (
-            <div className="p-3 rounded-lg bg-[var(--danger-light)] text-[var(--danger)] text-sm font-medium">
+            <div className="rounded-lg bg-[var(--danger-light)] p-3 text-sm font-medium text-[var(--danger)]">
               {error}
             </div>
           ) : null}
@@ -147,7 +172,7 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
             </div>
             <div className="admin-form-group">
               <label>Token Usage</label>
-              <div className="space-y-2 text-sm p-4 border border-[var(--border)] rounded-lg bg-[var(--bg)]">
+              <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4 text-sm">
                 <div className="flex justify-between">
                   <span className="text-[var(--text-secondary)]">输入</span>
                   <strong>{result?.usage?.prompt_tokens ?? 0}</strong>
@@ -179,24 +204,24 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
         <div className="admin-card-header">
           <div>
             <h3>接口速览</h3>
-            <p>当前后台里最常用的调试与运维接口</p>
+            <p>当前后台里最常用的调试与运维接口。</p>
           </div>
         </div>
         <div className="admin-card-body flex flex-col gap-1">
-          <EndpointItem method="POST" path="/verify" summary="管理员登录校验" />
-          <EndpointItem method="GET" path="/api/dashboard/overview" summary="仪表盘总览聚合接口" />
-          <EndpointItem method="GET" path="/api/getAllAccounts" summary="服务端分页账号查询接口" />
+          <EndpointItem method="POST" path="/verify" summary="管理员登录校验。" />
+          <EndpointItem method="GET" path="/api/dashboard/overview" summary="仪表盘总览聚合接口。" />
+          <EndpointItem method="GET" path="/api/getAllAccounts" summary="服务端分页账号查询接口。" />
           <EndpointItem method="GET" path="/api/models" summary="后台受保护模型列表，可用于调试模型选择。" />
           <EndpointItem method="POST" path="/v1/chat/completions" summary="真实聊天调试入口，支持当前登录 Key 直接联调。" />
           <EndpointItem method="POST" path="/v1/uploads" summary="独立 OSS 上传接口，支持 multipart / JSON base64 / raw body。" />
 
           <pre className="admin-code mt-4">{`curl -X POST /v1/chat/completions \\
-  -H "Authorization: Bearer ${apiKey ? "***已登录***" : "sk-admin"}" \\
+  -H "Authorization: Bearer ${apiKey ? "***已登录**" : "sk-admin"}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model":"${selectedModel || "qwen3-235b-a22b"}",
     "stream":false,
-    "messages":[{"role":"user","content":"你好"}]
+${reasoningEffort ? `    "reasoning_effort":"${reasoningEffort}",\n` : ""}    "messages":[{"role":"user","content":"你好"}]
   }'`}</pre>
         </div>
       </div>

@@ -22,7 +22,7 @@ type preparedChatRequest struct {
 	RequestedModel       string
 	Model                string
 	ChatType             string
-	ThinkingEnabled      bool
+	ThinkingMode         thinkingMode
 	ExpandedMessages     []map[string]any
 	FullUpstreamMessages []map[string]any
 	LastUpstreamMessages []map[string]any

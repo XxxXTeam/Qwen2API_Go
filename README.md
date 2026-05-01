@@ -172,13 +172,16 @@ curl http://127.0.0.1:3000/v1/chat/completions \
   -H "Authorization: Bearer sk-admin-change-me" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3-235b-a22b-thinking",
+    "model": "qwen3-235b-a22b",
+    "reasoning_effort": "high",
     "messages": [
       {"role": "user", "content": "你好"}
     ],
     "stream": false
   }'
 ```
+
+`reasoning_effort` 鍏煎 OpenAI Chat Completions 椋庢牸鍙傛暟锛屾敮鎸?`none`銆乴inimal`銆乴ow`銆乵edium`銆乨igh`銆乺high`銆?`none/minimal/low` 浼氭槧灏勪负 Fast锛?`medium/high/xhigh` 浼氭槧灏勪负 Thinking銆?
 
 ### Anthropic Messages
 
