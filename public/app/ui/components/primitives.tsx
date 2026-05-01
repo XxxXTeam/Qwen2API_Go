@@ -1,4 +1,3 @@
-import { Card, Chip, ProgressBar } from "@heroui/react";
 import type { ReactNode } from "react";
 import type { Tone } from "../types";
 
@@ -14,15 +13,11 @@ export function StatCard({
   tone?: Tone;
 }) {
   return (
-    <Card className={`panel panel-stat panel-${tone}`}>
-      <Card.Header className="panel-header">
-        <Card.Description>{title}</Card.Description>
-        <div className="panel-kpi">{value}</div>
-      </Card.Header>
-      <Card.Content>
-        <p className="panel-copy">{description}</p>
-      </Card.Content>
-    </Card>
+    <div className={`admin-stat-card ${tone === "default" ? "" : tone}`}>
+      <div className="label">{title}</div>
+      <div className="value">{value}</div>
+      <div className="desc">{description}</div>
+    </div>
   );
 }
 
@@ -36,7 +31,7 @@ export function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="section-title">
+    <div className="admin-section-title">
       <div>
         <h2>{title}</h2>
         <p>{description}</p>
@@ -56,15 +51,15 @@ export function MetricRow({
   total: number;
 }) {
   const ratio = total > 0 ? (value / total) * 100 : 0;
-
   return (
-    <div className="metric-row">
-      <div className="metric-row-head">
+    <div className="admin-metric">
+      <div className="admin-metric-head">
         <span>{label}</span>
         <strong>{value}</strong>
       </div>
-      <ProgressBar value={ratio} />
-      <div className="metric-row-foot">{ratio.toFixed(1)}%</div>
+      <div className="admin-progress">
+        <div className="admin-progress-fill" style={{ width: `${ratio}%` }} />
+      </div>
     </div>
   );
 }
@@ -78,15 +73,23 @@ export function EndpointItem({
   path: string;
   summary: string;
 }) {
+  const methodColor: Record<string, string> = {
+    GET: "bg-[var(--success-light)] text-[var(--success)]",
+    POST: "bg-[var(--primary-light)] text-[var(--primary)]",
+    DELETE: "bg-[var(--danger-light)] text-[var(--danger)]",
+    PUT: "bg-[var(--warning-light)] text-[var(--warning)]",
+  };
   return (
-    <div className="endpoint-item">
-      <div className="endpoint-head">
-        <Chip color="accent" variant="soft">
-          {method}
-        </Chip>
-        <code>{path}</code>
+    <div className="admin-endpoint">
+      <div>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${methodColor[method] || methodColor.POST}`}>
+            {method}
+          </span>
+          <code>{path}</code>
+        </div>
+        <p>{summary}</p>
       </div>
-      <p>{summary}</p>
     </div>
   );
 }

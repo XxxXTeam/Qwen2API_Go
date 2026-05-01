@@ -1,4 +1,3 @@
-import { Card } from "@heroui/react";
 import type { OverviewResponse } from "../types";
 
 type Analytics = OverviewResponse["analytics"];
@@ -34,20 +33,20 @@ export function RequestTrendChart({ analytics }: { analytics: Analytics | undefi
   const requestPeak = Math.max(1, ...minuteSeries.map((item) => item.requests));
 
   return (
-    <div className="chart-card">
-      <div className="chart-header">
+    <div className="admin-chart-card">
+      <div className="admin-chart-header">
         <div>
-          <h3>30 分钟请求趋势</h3>
-          <p>展示实时 RPM 波动与请求峰值。</p>
+          <h4>30 分钟请求趋势</h4>
+          <p>实时 RPM 波动与请求峰值</p>
         </div>
-        <strong>{requestPeak} peak</strong>
+        <strong className="text-sm text-[var(--primary)]">{requestPeak} peak</strong>
       </div>
-      <div className="bar-chart">
+      <div className="admin-bar-chart">
         {minuteSeries.map((item) => (
-          <div className="bar-chart-item" key={`req-${item.time}`}>
+          <div className="admin-bar-chart-item" key={`req-${item.time}`}>
             <div
-              className="bar-chart-bar bar-chart-bar-request"
-              style={{ height: `${Math.max(8, (item.requests / requestPeak) * 100)}%` }}
+              className="admin-bar-chart-bar"
+              style={{ height: `${Math.max(4, (item.requests / requestPeak) * 100)}%` }}
               title={`${item.label} / ${item.requests} req`}
             />
             <span>{item.label}</span>
@@ -63,29 +62,28 @@ export function TokenThroughputChart({ analytics }: { analytics: Analytics | und
   const tokenPeak = Math.max(1, ...minuteSeries.map((item) => item.totalTokens));
 
   return (
-    <div className="chart-card">
-      <div className="chart-header">
+    <div className="admin-chart-card">
+      <div className="admin-chart-header">
         <div>
-          <h3>30 分钟 Token 吞吐</h3>
-          <p>按分钟展示输入输出总吞吐。</p>
+          <h4>30 分钟 Token 吞吐</h4>
+          <p>按分钟展示输入输出总吞吐</p>
         </div>
-        <strong>{formatCompactNumber(tokenPeak)} peak</strong>
+        <strong className="text-sm text-[var(--primary)]">{formatCompactNumber(tokenPeak)} peak</strong>
       </div>
-      <div className="bar-chart token-chart">
+      <div className="admin-bar-chart">
         {minuteSeries.map((item) => (
-          <div className="bar-chart-item" key={`token-${item.time}`}>
-            <div className="bar-chart-stack">
-              <div
-                className="bar-chart-bar bar-chart-bar-output"
-                style={{ height: `${Math.max(6, (item.completionTokens / tokenPeak) * 100)}%` }}
-                title={`${item.label} / 输出 ${item.completionTokens}`}
-              />
-              <div
-                className="bar-chart-bar bar-chart-bar-input"
-                style={{ height: `${Math.max(6, (item.promptTokens / tokenPeak) * 100)}%` }}
-                title={`${item.label} / 输入 ${item.promptTokens}`}
-              />
-            </div>
+          <div className="admin-bar-chart-item" key={`token-${item.time}`}>
+            <div
+              className="admin-bar-chart-bar"
+              style={{
+                height: `${Math.max(4, (item.totalTokens / tokenPeak) * 100)}%`,
+                background:
+                  item.totalTokens > 0
+                    ? `linear-gradient(180deg, var(--primary) 60%, var(--warning) 100%)`
+                    : undefined,
+              }}
+              title={`${item.label} / 输入 ${item.promptTokens} / 输出 ${item.completionTokens}`}
+            />
             <span>{item.label}</span>
           </div>
         ))}
@@ -96,26 +94,35 @@ export function TokenThroughputChart({ analytics }: { analytics: Analytics | und
 
 export function RequestMixCard({ analytics }: { analytics: Analytics | undefined }) {
   const mixTotal = Math.max(1, ...(analytics?.requestMix.map((item) => item.value) || [1]));
+  const colors = ["var(--primary)", "var(--success)", "var(--warning)", "var(--danger)", "var(--text-muted)"];
 
   return (
-    <Card className="panel">
-      <Card.Header className="panel-header">
-        <Card.Title>请求结构分布</Card.Title>
-        <Card.Description>按接口类型拆解流量组成。</Card.Description>
-      </Card.Header>
-      <Card.Content className="stack-md">
-        {(analytics?.requestMix || []).map((item) => (
-          <div className="mix-row" key={item.label}>
-            <div className="mix-row-head">
+    <div className="admin-card">
+      <div className="admin-card-header">
+        <div>
+          <h3>请求结构分布</h3>
+          <p>按接口类型拆解流量组成</p>
+        </div>
+      </div>
+      <div className="admin-card-body">
+        {(analytics?.requestMix || []).map((item, idx) => (
+          <div className="admin-mix-row" key={item.label}>
+            <div className="admin-mix-row-head">
               <span>{item.label}</span>
               <strong>{item.value}</strong>
             </div>
-            <div className="mix-row-track">
-              <div className="mix-row-fill" style={{ width: `${(item.value / mixTotal) * 100}%` }} />
+            <div className="admin-mix-track">
+              <div
+                className="admin-mix-fill"
+                style={{
+                  width: `${(item.value / mixTotal) * 100}%`,
+                  background: colors[idx % colors.length],
+                }}
+              />
             </div>
           </div>
         ))}
-      </Card.Content>
-    </Card>
+      </div>
+    </div>
   );
 }

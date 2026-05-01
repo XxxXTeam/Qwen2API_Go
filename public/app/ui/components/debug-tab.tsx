@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Input } from "@heroui/react";
+import { Input } from "@heroui/react";
 import { useMemo, useState } from "react";
 import { apiRequest } from "../api";
 import type { ChatCompletionResponse, ModelItem } from "../types";
@@ -62,89 +62,127 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
   const content = result?.choices?.[0]?.message?.content || "";
 
   return (
-    <div className="debug-layout">
-      <Card className="panel">
-        <Card.Header className="panel-header">
-          <Card.Title>对话调试台</Card.Title>
-          <Card.Description>选择真实模型并直接发起 `/v1/chat/completions` 请求，用当前登录 Key 调试对话结果。</Card.Description>
-        </Card.Header>
-        <Card.Content className="stack-lg">
-          <div className="debug-form-grid">
-            <div className="settings-field-card">
-              <span>调试模型</span>
-              <select className="app-select" value={selectedModel} onChange={(e) => setModel(e.target.value)}>
+    <div className="admin-grid-2">
+      <div className="admin-card">
+        <div className="admin-card-header">
+          <div>
+            <h3>对话调试台</h3>
+            <p>选择真实模型并直接发起 /v1/chat/completions 请求，用当前登录 Key 调试对话结果</p>
+          </div>
+        </div>
+        <div className="admin-card-body flex flex-col gap-5">
+          <div className="admin-form-grid">
+            <div className="admin-form-group">
+              <label>调试模型</label>
+              <select className="admin-select" value={selectedModel} onChange={(e) => setModel(e.target.value)}>
                 {availableModels.map((item) => (
-                  <option key={item} value={item}>{item}</option>
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
                 ))}
               </select>
             </div>
-            <div className="settings-field-card">
-              <span>Temperature</span>
+            <div className="admin-form-group">
+              <label>Temperature</label>
               <Input type="number" value={temperature} onChange={(e) => setTemperature(e.target.value)} />
             </div>
-            <div className="settings-field-card">
-              <span>Max Tokens</span>
+            <div className="admin-form-group">
+              <label>Max Tokens</label>
               <Input type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} />
             </div>
           </div>
 
-          <div className="debug-text-grid">
-            <div className="settings-field-card">
-              <span>System Prompt</span>
-              <textarea className="app-textarea" rows={5} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
+          <div className="admin-grid-2">
+            <div className="admin-form-group">
+              <label>System Prompt</label>
+              <textarea
+                className="admin-textarea"
+                rows={5}
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+              />
             </div>
-            <div className="settings-field-card">
-              <span>User Message</span>
-              <textarea className="app-textarea" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
+            <div className="admin-form-group">
+              <label>User Message</label>
+              <textarea
+                className="admin-textarea"
+                rows={5}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+              />
             </div>
           </div>
 
-          <div className="wrap-actions">
-            <Button className="action-button" variant="primary" isDisabled={!selectedModel || !message.trim() || loading} onPress={() => void submitDebugChat()}>
-              <span className="button-icon">▶</span>
-              <span>{loading ? "请求中..." : "发送调试请求"}</span>
-            </Button>
-            <Button className="action-button" variant="ghost" isDisabled={loading} onPress={() => {
-              setResult(null);
-              setRaw("");
-              setError("");
-            }}>
-              <span className="button-icon">×</span>
-              <span>清空结果</span>
-            </Button>
+          <div className="flex gap-3">
+            <button
+              className="admin-btn admin-btn-primary"
+              disabled={!selectedModel || !message.trim() || loading}
+              onClick={() => void submitDebugChat()}
+            >
+              {loading ? "请求中..." : "发送调试请求"}
+            </button>
+            <button
+              className="admin-btn admin-btn-ghost"
+              disabled={loading}
+              onClick={() => {
+                setResult(null);
+                setRaw("");
+                setError("");
+              }}
+            >
+              清空结果
+            </button>
           </div>
 
-          {error ? <div className="toast toast-error">{error}</div> : null}
-
-          <div className="debug-result-grid">
-            <div className="settings-field-card">
-              <span>模型回复</span>
-              <div className="debug-response-box">{content || "发送请求后，这里会显示模型返回内容。"}</div>
+          {error ? (
+            <div className="p-3 rounded-lg bg-[var(--danger-light)] text-[var(--danger)] text-sm font-medium">
+              {error}
             </div>
-            <div className="settings-field-card">
-              <span>Token Usage</span>
-              <div className="kv-stack">
-                <div><span>输入</span><strong>{result?.usage?.prompt_tokens ?? 0}</strong></div>
-                <div><span>输出</span><strong>{result?.usage?.completion_tokens ?? 0}</strong></div>
-                <div><span>总计</span><strong>{result?.usage?.total_tokens ?? 0}</strong></div>
-                <div><span>模型</span><strong>{result?.model ?? selectedModel ?? "-"}</strong></div>
+          ) : null}
+
+          <div className="admin-grid-2">
+            <div className="admin-form-group">
+              <label>模型回复</label>
+              <div className="admin-debug-box">{content || "发送请求后，这里会显示模型返回内容。"}</div>
+            </div>
+            <div className="admin-form-group">
+              <label>Token Usage</label>
+              <div className="space-y-2 text-sm p-4 border border-[var(--border)] rounded-lg bg-[var(--bg)]">
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">输入</span>
+                  <strong>{result?.usage?.prompt_tokens ?? 0}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">输出</span>
+                  <strong>{result?.usage?.completion_tokens ?? 0}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">总计</span>
+                  <strong>{result?.usage?.total_tokens ?? 0}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">模型</span>
+                  <strong className="mono">{result?.model ?? selectedModel ?? "-"}</strong>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="settings-field-card">
-            <span>原始响应 JSON</span>
-            <pre className="code-block">{raw || "{ }"}</pre>
+          <div className="admin-form-group">
+            <label>原始响应 JSON</label>
+            <pre className="admin-code">{raw || "{ }"}</pre>
           </div>
-        </Card.Content>
-      </Card>
+        </div>
+      </div>
 
-      <Card className="panel">
-        <Card.Header className="panel-header">
-          <Card.Title>接口速览</Card.Title>
-          <Card.Description>当前后台里最常用的调试与运维接口。</Card.Description>
-        </Card.Header>
-        <Card.Content className="stack-md">
+      <div className="admin-card">
+        <div className="admin-card-header">
+          <div>
+            <h3>接口速览</h3>
+            <p>当前后台里最常用的调试与运维接口</p>
+          </div>
+        </div>
+        <div className="admin-card-body flex flex-col gap-1">
           <EndpointItem method="POST" path="/verify" summary="管理员登录校验" />
           <EndpointItem method="GET" path="/api/dashboard/overview" summary="仪表盘总览聚合接口" />
           <EndpointItem method="GET" path="/api/getAllAccounts" summary="服务端分页账号查询接口" />
@@ -152,7 +190,7 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
           <EndpointItem method="POST" path="/v1/chat/completions" summary="真实聊天调试入口，支持当前登录 Key 直接联调。" />
           <EndpointItem method="POST" path="/v1/uploads" summary="独立 OSS 上传接口，支持 multipart / JSON base64 / raw body。" />
 
-          <pre className="code-block">{`curl -X POST /v1/chat/completions \\
+          <pre className="admin-code mt-4">{`curl -X POST /v1/chat/completions \\
   -H "Authorization: Bearer ${apiKey ? "***已登录***" : "sk-admin"}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -160,8 +198,8 @@ export function DebugTab({ apiKey, models }: { apiKey: string; models: ModelItem
     "stream":false,
     "messages":[{"role":"user","content":"你好"}]
   }'`}</pre>
-        </Card.Content>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Card, Chip, Input } from "@heroui/react";
+import { Input } from "@heroui/react";
 import type { ModelItem } from "../types";
 import { formatCompactNumber } from "./dashboard-charts";
 import { SectionTitle } from "./primitives";
@@ -24,73 +24,86 @@ export function ModelsTab({
   );
 
   return (
-    <Card className="panel">
-      <Card.Header className="panel-header">
+    <div className="admin-card">
+      <div className="admin-card-header">
         <SectionTitle
           title="模型能力矩阵"
-          description="读取后台受保护 `/api/models`，查看模型变体能力与累计输入/输出 Token。"
-          action={<Input placeholder="搜索模型" value={keyword} onChange={(e) => setKeyword(e.target.value)} />}
+          description="读取后台受保护 /api/models，查看模型变体能力与累计输入/输出 Token"
+          action={<Input placeholder="搜索模型" value={keyword} onChange={(e) => setKeyword(e.target.value)} className="w-64" />}
         />
-      </Card.Header>
-      <Card.Content className="stack-lg">
-        <div className="model-summary-strip">
-          <div className="overview-kpi-item">
-            <span>当前模型数</span>
-            <strong>{formatCompactNumber(models.length)}</strong>
+      </div>
+      <div className="admin-card-body">
+        <div className="admin-stat-grid mb-6">
+          <div className="admin-stat-card primary">
+            <div className="label">当前模型数</div>
+            <div className="value">{formatCompactNumber(models.length)}</div>
           </div>
-          <div className="overview-kpi-item">
-            <span>活跃变体</span>
-            <strong>{formatCompactNumber(activeModels)}</strong>
+          <div className="admin-stat-card success">
+            <div className="label">活跃变体</div>
+            <div className="value">{formatCompactNumber(activeModels)}</div>
           </div>
-          <div className="overview-kpi-item">
-            <span>累计输入</span>
-            <strong>{formatCompactNumber(totals.prompt)}</strong>
+          <div className="admin-stat-card warning">
+            <div className="label">累计输入</div>
+            <div className="value">{formatCompactNumber(totals.prompt)}</div>
           </div>
-          <div className="overview-kpi-item">
-            <span>累计输出</span>
-            <strong>{formatCompactNumber(totals.completion)}</strong>
-          </div>
-          <div className="overview-kpi-item">
-            <span>累计总量</span>
-            <strong>{formatCompactNumber(totals.total)}</strong>
+          <div className="admin-stat-card danger">
+            <div className="label">累计输出</div>
+            <div className="value">{formatCompactNumber(totals.completion)}</div>
           </div>
         </div>
-        <div className="model-grid">
+
+        <div className="admin-model-grid">
           {models.map((model) => (
-            <Card className="panel model-card" key={model.id}>
-              <Card.Header className="panel-header">
-                <div className="model-card-head">
-                  <div className="stack-sm">
-                    <Card.Title>{model.id}</Card.Title>
-                    <Card.Description>{model.display_name || model.name || model.upstream_id || "-"}</Card.Description>
-                  </div>
-                  <div className="model-token-pill">
-                    <span>总 Token</span>
-                    <strong>{formatCompactNumber(model.usage?.totalTokens)}</strong>
-                  </div>
+            <div className="admin-model-card" key={model.id}>
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <h4 className="truncate">{model.id}</h4>
+                  <p className="id truncate">{model.display_name || model.name || model.upstream_id || "-"}</p>
                 </div>
-              </Card.Header>
-              <Card.Content className="stack-sm">
-                <div className="chips-inline">
-                  {model.id.includes("thinking") ? <Chip color="success" variant="soft">Thinking</Chip> : null}
-                  {model.id.includes("search") ? <Chip color="warning" variant="soft">Search</Chip> : null}
-                  {model.id.includes("image") ? <Chip color="accent" variant="soft">Image</Chip> : null}
-                  {model.id.includes("video") ? <Chip color="danger" variant="soft">Video</Chip> : null}
-                  {model.usage?.totalTokens ? <Chip color="success" variant="soft">活跃</Chip> : null}
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  <span className="text-xs text-[var(--text-muted)]">总 Token</span>
+                  <strong className="text-lg">{formatCompactNumber(model.usage?.totalTokens)}</strong>
                 </div>
-                <div className="kv-stack">
-                  <div><span>请求名</span><strong>{model.name || model.id}</strong></div>
-                  <div><span>上游 ID</span><strong>{model.upstream_id || "-"}</strong></div>
-                  <div><span>显示名</span><strong>{model.display_name || "-"}</strong></div>
-                  <div><span>输入 Token</span><strong>{formatCompactNumber(model.usage?.promptTokens)}</strong></div>
-                  <div><span>输出 Token</span><strong>{formatCompactNumber(model.usage?.completionTokens)}</strong></div>
-                  <div><span>总 Token</span><strong>{formatCompactNumber(model.usage?.totalTokens)}</strong></div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-4">
+                {model.id.includes("thinking") ? <span className="admin-tag success">Thinking</span> : null}
+                {model.id.includes("search") ? <span className="admin-tag warning">Search</span> : null}
+                {model.id.includes("image") ? <span className="admin-tag primary">Image</span> : null}
+                {model.id.includes("video") ? <span className="admin-tag danger">Video</span> : null}
+                {model.usage?.totalTokens ? <span className="admin-tag success">活跃</span> : null}
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">请求名</span>
+                  <strong>{model.name || model.id}</strong>
                 </div>
-              </Card.Content>
-            </Card>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">上游 ID</span>
+                  <strong className="mono">{model.upstream_id || "-"}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">显示名</span>
+                  <strong>{model.display_name || "-"}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">输入 Token</span>
+                  <strong>{formatCompactNumber(model.usage?.promptTokens)}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">输出 Token</span>
+                  <strong>{formatCompactNumber(model.usage?.completionTokens)}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-secondary)]">总 Token</span>
+                  <strong>{formatCompactNumber(model.usage?.totalTokens)}</strong>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
-      </Card.Content>
-    </Card>
+      </div>
+    </div>
   );
 }
