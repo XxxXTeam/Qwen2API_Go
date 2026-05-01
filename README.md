@@ -181,8 +181,6 @@ curl http://127.0.0.1:3000/v1/chat/completions \
   }'
 ```
 
-`reasoning_effort` 鍏煎 OpenAI Chat Completions 椋庢牸鍙傛暟锛屾敮鎸?`none`銆乴inimal`銆乴ow`銆乵edium`銆乨igh`銆乺high`銆?`none/minimal/low` 浼氭槧灏勪负 Fast锛?`medium/high/xhigh` 浼氭槧灏勪负 Thinking銆?
-
 ### Anthropic Messages
 
 支持 `x-api-key` 和 `Authorization: Bearer ...` 两种鉴权方式。
