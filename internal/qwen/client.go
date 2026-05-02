@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,8 @@ type Client struct {
 	models     []Model
 	modelsAt   time.Time
 	ssxmod     *ssxmod.Manager
+	guestMu    sync.RWMutex
+	guestAuth  guestAuthState
 }
 
 func NewClient(cfg config.Config, logger *logging.Logger) *Client {
@@ -84,7 +87,11 @@ func (c *Client) newRequestWithOptions(ctx context.Context, method, path string,
 		options.ContentType = "application/json"
 	}
 
+	rawToken := normalizeBearerToken(token)
 	fingerprint := fingerprintForToken(token)
+	if rawToken == "" {
+		fingerprint = guestRequestFingerprint()
+	}
 
 	req.Header.Set("User-Agent", fingerprint.UserAgent)
 	req.Header.Set("Connection", "keep-alive")
@@ -107,33 +114,57 @@ func (c *Client) newRequestWithOptions(ctx context.Context, method, path string,
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
-	req.Header.Set("Referer", c.baseURL+"/c/guest")
+	referer := strings.TrimSpace(options.Referer)
+	if referer == "" {
+		referer = c.baseURL + "/c/guest"
+	}
+	req.Header.Set("Referer", referer)
 	req.Header.Set("Cache-Control", fingerprint.CacheControl)
 	req.Header.Set("Pragma", fingerprint.Pragma)
 	req.Header.Set("Priority", fingerprint.Priority)
 	req.Header.Set("DNT", fingerprint.DNT)
 	req.Header.Set("source", "web")
-	req.Header.Set("Version", "0.1.13")
-	req.Header.Set("bx-v", "2.5.31")
 	req.Header.Set("X-Request-Timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
-	rawToken := strings.TrimSpace(token)
-	if strings.HasPrefix(strings.ToLower(rawToken), "bearer ") {
-		rawToken = strings.TrimSpace(strings.TrimPrefix(rawToken, "Bearer "))
+	if rawToken == "" {
+		req.Header.Set("Version", "0.2.45")
+		req.Header.Set("bx-v", "2.5.36")
+		req.Header.Set("X-Accel-Buffering", "no")
+	} else {
+		req.Header.Set("Version", "0.1.13")
+		req.Header.Set("bx-v", "2.5.31")
 	}
 	if options.IncludeAuth && rawToken != "" {
 		req.Header.Set("Authorization", "Bearer "+rawToken)
 	}
-	req.Header.Set("Cookie", c.buildCookieHeader(rawToken))
+	for key, values := range options.Headers {
+		req.Header.Del(key)
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+	cookieHeader, err := c.buildCookieHeader(ctx, rawToken)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Cookie", cookieHeader)
 
 	return req, nil
 }
 
-func (c *Client) buildCookieHeader(token string) string {
+func (c *Client) buildCookieHeader(ctx context.Context, token string) (string, error) {
 	ssxmodITNA, ssxmodITNA2 := c.ssxmod.Get()
 	parts := make([]string, 0, 3)
 	if strings.TrimSpace(token) != "" {
 		parts = append(parts, "token="+strings.TrimSpace(token))
+	} else {
+		guestCookie, err := c.EnsureGuestCookieHeader(ctx)
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(guestCookie) != "" {
+			parts = append(parts, guestCookie)
+		}
 	}
 	if strings.TrimSpace(ssxmodITNA) != "" {
 		parts = append(parts, "ssxmod_itna="+ssxmodITNA)
@@ -141,10 +172,24 @@ func (c *Client) buildCookieHeader(token string) string {
 	if strings.TrimSpace(ssxmodITNA2) != "" {
 		parts = append(parts, "ssxmod_itna2="+ssxmodITNA2)
 	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, "; "), nil
 }
 
 func (c *Client) do(req *http.Request) (*http.Response, error) {
+	resp, err := c.doOnce(req)
+	if err == nil || !isAnonymousRequest(req) {
+		return resp, err
+	}
+
+	c.logger.WarnModule("UPSTREAM", "anonymous upstream request failed, refreshing guest cookies and retrying method=%s url=%s", req.Method, req.URL.String())
+	retryReq, refreshErr := c.cloneRequestWithRefreshedGuestCookie(req)
+	if refreshErr != nil {
+		return nil, err
+	}
+	return c.doOnce(retryReq)
+}
+
+func (c *Client) doOnce(req *http.Request) (*http.Response, error) {
 	start := time.Now()
 	bodyPreview := requestBodyPreview(req)
 	if bodyPreview != "" {
@@ -171,6 +216,58 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("上游请求失败 (%d): %s", resp.StatusCode, trimmedBody)
 	}
 	return resp, nil
+}
+
+func normalizeBearerToken(token string) string {
+	rawToken := strings.TrimSpace(token)
+	if strings.HasPrefix(strings.ToLower(rawToken), "bearer ") {
+		rawToken = strings.TrimSpace(rawToken[7:])
+	}
+	return rawToken
+}
+
+func isAnonymousRequest(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	return strings.TrimSpace(req.Header.Get("Authorization")) == ""
+}
+
+func (c *Client) cloneRequestWithRefreshedGuestCookie(req *http.Request) (*http.Request, error) {
+	if req == nil {
+		return nil, errors.New("request is nil")
+	}
+
+	if _, err := c.RefreshGuestCookieHeader(req.Context()); err != nil {
+		return nil, err
+	}
+
+	var body io.ReadCloser
+	if req.GetBody != nil {
+		reader, err := req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		body = reader
+	}
+
+	cloned, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	cloned.Header = req.Header.Clone()
+	cloned.ContentLength = req.ContentLength
+	if body == nil {
+		cloned.GetBody = req.GetBody
+	}
+
+	cookieHeader, err := c.buildCookieHeader(req.Context(), "")
+	if err != nil {
+		return nil, err
+	}
+	cloned.Header.Del("Authorization")
+	cloned.Header.Set("Cookie", cookieHeader)
+	return cloned, nil
 }
 
 func requestBodyPreview(req *http.Request) string {
@@ -339,14 +436,37 @@ func (c *Client) ListModels(ctx context.Context, token string) ([]Model, error) 
 	return append([]Model(nil), payload.Data...), nil
 }
 
-func (c *Client) NewChat(ctx context.Context, token, model string) (string, error) {
-	req, err := c.newRequest(ctx, http.MethodPost, "/api/v2/chats/new", token, map[string]any{
+func (c *Client) NewChat(ctx context.Context, token, model, chatType string) (string, error) {
+	chatType = strings.TrimSpace(chatType)
+	if chatType == "" {
+		chatType = "t2t"
+	}
+	chatMode := "local"
+	body := map[string]any{
 		"title":     "New Chat",
 		"models":    []string{model},
-		"chat_mode": "local",
-		"chat_type": "t2i",
+		"chat_mode": chatMode,
+		"chat_type": chatType,
 		"timestamp": time.Now().UnixMilli(),
-	})
+	}
+	requestOptions := RequestOptions{
+		Accept:      "application/json",
+		ContentType: "application/json",
+		IncludeAuth: true,
+	}
+	if strings.TrimSpace(normalizeBearerToken(token)) == "" {
+		chatMode = "guest"
+		body["title"] = "新建对话"
+		body["chat_mode"] = chatMode
+		body["project_id"] = ""
+		requestOptions.Accept = "application/json, text/plain, */*"
+		requestOptions.Referer = c.baseURL + "/c/new-chat"
+		requestOptions.Headers = http.Header{
+			"X-Request-Id": []string{newRequestID()},
+		}
+	}
+	body["chat_mode"] = chatMode
+	req, err := c.newRequestWithOptions(ctx, http.MethodPost, "/api/v2/chats/new", token, body, requestOptions)
 	if err != nil {
 		return "", err
 	}
@@ -356,26 +476,36 @@ func (c *Client) NewChat(ctx context.Context, token, model string) (string, erro
 	}
 	defer resp.Body.Close()
 
-	var payload struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
+	var payload map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(payload.Data.ID) == "" {
-		return "", errors.New("生成 chat_id 失败")
+	if upstreamErr := NormalizeUpstreamError(payload); upstreamErr != nil {
+		return "", upstreamErr
 	}
-	return payload.Data.ID, nil
+	chatID := strings.TrimSpace(extractChatIDFromPayload(payload))
+	if chatID == "" {
+		return "", fmt.Errorf("生成 chat_id 失败: %s", previewValue(payload))
+	}
+	return chatID, nil
 }
 
 func (c *Client) ChatCompletions(ctx context.Context, token, chatID string, body map[string]any) (*http.Response, error) {
-	req, err := c.newRequestWithOptions(ctx, http.MethodPost, "/api/v2/chat/completions?chat_id="+url.QueryEscape(chatID), token, body, RequestOptions{
-		Accept:      "text/event-stream",
+	accept := "text/event-stream"
+	requestOptions := RequestOptions{
+		Accept:      accept,
 		ContentType: "application/json",
 		IncludeAuth: true,
-	})
+	}
+	if strings.TrimSpace(normalizeBearerToken(token)) == "" {
+		accept = "application/json"
+		requestOptions.Accept = accept
+		requestOptions.Referer = c.baseURL + "/c/guest"
+		requestOptions.Headers = http.Header{
+			"X-Request-Id": []string{newRequestID()},
+		}
+	}
+	req, err := c.newRequestWithOptions(ctx, http.MethodPost, "/api/v2/chat/completions?chat_id="+url.QueryEscape(chatID), token, body, requestOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -505,4 +635,53 @@ func simpleFileType(contentType string) string {
 	default:
 		return "file"
 	}
+}
+
+func extractChatIDFromPayload(payload any) string {
+	switch v := payload.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]any:
+		for _, key := range []string{"chat_id", "chatId", "id"} {
+			if id := extractChatIDFromPayload(v[key]); id != "" {
+				return id
+			}
+		}
+		for _, key := range []string{"data", "chat", "message", "result", "response"} {
+			if id := extractChatIDFromPayload(v[key]); id != "" {
+				return id
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if id := extractChatIDFromPayload(item); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
+}
+
+func previewValue(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	text := strings.TrimSpace(string(raw))
+	if len(text) > 300 {
+		return text[:300] + "...(truncated)"
+	}
+	return text
+}
+
+func newRequestID() string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
 }

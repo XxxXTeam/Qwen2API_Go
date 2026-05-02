@@ -14,6 +14,7 @@ const defaultDotEnvTemplate = `# Qwen2API_Go default configuration
 API_KEY=sk-admin-change-me,sk-user-change-me
 
 # Account source:
+# guest = always use anonymous guest cookies
 # none  = read ACCOUNTS only, no persistence
 # file  = persist accounts to data/data.json
 # redis = persist accounts to Redis via REDIS_URL

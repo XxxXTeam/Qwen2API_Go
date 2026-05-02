@@ -28,6 +28,8 @@ type RequestOptions struct {
 	Accept      string
 	ContentType string
 	IncludeAuth bool
+	Referer     string
+	Headers     http.Header
 }
 
 type UpstreamError struct {

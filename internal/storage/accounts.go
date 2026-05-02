@@ -21,7 +21,14 @@ type Account struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Token    string `json:"token"`
+	Source   string `json:"source,omitempty"`
 	Expires  int64  `json:"expires"`
+}
+
+const AccountSourceGuest = "guest"
+
+func (a Account) IsGuest() bool {
+	return strings.EqualFold(strings.TrimSpace(a.Source), AccountSourceGuest)
 }
 
 type FileData struct {
@@ -55,6 +62,8 @@ func NewAccountStore(cfg config.Config) (AccountStore, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.DataSaveMode)) {
 	case "", "none":
 		return newEnvStoreFromCurrentEnv(), nil
+	case "guest":
+		return &envStore{accounts: []Account{}}, nil
 	case "file":
 		return &fileStore{path: filepath.Join("data", "data.json")}, nil
 	case "redis":

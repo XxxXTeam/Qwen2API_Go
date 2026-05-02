@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"qwen2api/internal/qwen"
 	"qwen2api/internal/storage"
@@ -157,11 +156,18 @@ func selectIncrementalTailMessages(messages []map[string]any) []map[string]any {
 }
 
 func (h *Handler) sendChatWithSession(ctx context.Context, prepared preparedChatRequest, session storage.Account, existingChatID string, incremental bool) (*executedChat, int, error) {
+	return h.sendChatWithSessionAttempt(ctx, prepared, session, existingChatID, incremental, true)
+}
+
+func (h *Handler) sendChatWithSessionAttempt(ctx context.Context, prepared preparedChatRequest, session storage.Account, existingChatID string, incremental bool, allowGuestRefresh bool) (*executedChat, int, error) {
 	chatID := strings.TrimSpace(existingChatID)
 	if chatID == "" {
 		var err error
-		chatID, err = h.qwen.NewChat(ctx, session.Token, prepared.Model)
+		chatID, err = h.qwen.NewChat(ctx, session.Token, prepared.Model, prepared.ChatType)
 		if err != nil {
+			if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
+				return h.sendChatWithSessionAttempt(ctx, prepared, session, "", false, false)
+			}
 			return nil, http.StatusBadGateway, err
 		}
 	}
@@ -176,28 +182,26 @@ func (h *Handler) sendChatWithSession(ctx context.Context, prepared preparedChat
 		return nil, http.StatusBadGateway, err
 	}
 
-	body := map[string]any{
-		"stream":             true,
-		"incremental_output": true,
-		"chat_id":            chatID,
-		"chat_type":          prepared.ChatType,
-		"model":              prepared.Model,
-		"messages":           upstreamMessages,
-		"session_id":         fmt.Sprintf("%d", time.Now().UnixNano()),
-		"id":                 fmt.Sprintf("%d", time.Now().UnixNano()),
-		"sub_chat_type":      prepared.ChatType,
-		"chat_mode":          "normal",
-	}
+	body := buildChatRequestBody(session, prepared.Model, chatID, prepared.ChatType, upstreamMessages)
 
 	resp, err := h.qwen.ChatCompletions(ctx, session.Token, chatID, body)
 	if err != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
+			return h.sendChatWithSessionAttempt(ctx, prepared, session, "", false, false)
+		}
 		return nil, http.StatusBadGateway, err
 	}
 	inspected, err := qwen.InspectUpstreamStream(ctx, resp.Body)
 	if err != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
+			return h.sendChatWithSessionAttempt(ctx, prepared, session, "", false, false)
+		}
 		return nil, http.StatusBadGateway, err
 	}
 	if inspected.UpstreamError != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, inspected.UpstreamError) == nil {
+			return h.sendChatWithSessionAttempt(ctx, prepared, session, "", false, false)
+		}
 		return nil, normalizeUpstreamStatus(inspected.UpstreamError.StatusCode), inspected.UpstreamError
 	}
 	h.accounts.ResetFailure(session.Email)
@@ -208,6 +212,14 @@ func (h *Handler) sendChatWithSession(ctx context.Context, prepared preparedChat
 		ToolNames:      prepared.ToolNames,
 		Stream:         stream,
 	}, http.StatusOK, nil
+}
+
+func (h *Handler) refreshGuestSession(ctx context.Context, session storage.Account, cause error) error {
+	if !session.IsGuest() {
+		return nil
+	}
+	h.logger.WarnModule("OPENAI", "guest session failed, refreshing anonymous cookies account=%s err=%v", session.Email, cause)
+	return h.accounts.RefreshAccount(ctx, session.Email)
 }
 
 func normalizeUpstreamStatus(status int) int {

@@ -35,7 +35,7 @@ type memoryConversationStore struct {
 
 func NewConversationStore(cfg config.Config) (ConversationStore, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.DataSaveMode)) {
-	case "", "none":
+	case "", "none", "guest":
 		return &memoryConversationStore{sessions: map[string]ConversationSession{}}, nil
 	case "file":
 		return &fileStore{path: filepathForData(cfg)}, nil

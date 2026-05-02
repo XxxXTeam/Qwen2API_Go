@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type requestFingerprint struct {
@@ -156,5 +157,27 @@ func fingerprintForToken(token string) requestFingerprint {
 		Pragma:                 "no-cache",
 		Priority:               fingerprintPriorities[int(seedB%uint64(len(fingerprintPriorities)))],
 		DNT:                    fmt.Sprintf("%d", seedC%2),
+	}
+}
+
+func guestRequestFingerprint() requestFingerprint {
+	fullVersion := "147.0.0.0"
+	return requestFingerprint{
+		UserAgent:              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+		SecChUA:                `"Microsoft Edge";v="147", "Not.A/Brand";v="8", "Chromium";v="147"`,
+		SecChUAFullVersion:     fullVersion,
+		SecChUAFullVersionList: `"Microsoft Edge";v="147.0.0.0", "Chromium";v="147.0.0.0", "Not.A/Brand";v="8.0.0.0"`,
+		SecChUAPlatform:        `"Windows"`,
+		SecChUAPlatformVersion: `"10.0.0"`,
+		SecChUAMobile:          "?0",
+		SecChUAArch:            `"x86"`,
+		SecChUABitness:         `"64"`,
+		AcceptLanguage:         "zh-CN,zh;q=0.9",
+		Timezone:               time.Now().Format("Mon Jan 02 2006 15:04:05 GMT-0700"),
+		AcceptEncoding:         "gzip, deflate, br",
+		CacheControl:           "no-cache",
+		Pragma:                 "no-cache",
+		Priority:               "u=1, i",
+		DNT:                    "0",
 	}
 }

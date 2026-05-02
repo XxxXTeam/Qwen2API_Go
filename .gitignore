@@ -2,3 +2,9 @@
 dist
 data
 .env
+
+# 调试
+.play*
+/data.json
+/docs
+*.py

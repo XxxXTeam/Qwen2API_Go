@@ -44,6 +44,8 @@ type HealthStats struct {
 	Rotation    RotationStats  `json:"rotation"`
 }
 
+const guestAccountEmail = "guest"
+
 type Service struct {
 	cfg      config.Config
 	runtime  *config.Runtime
@@ -94,13 +96,18 @@ func (s *Service) Initialize(ctx context.Context) error {
 			validated = append(validated, normalized)
 		}
 	}
+	if len(validated) == 0 {
+		if guest, ok := s.ensureGuestReady(ctx); ok {
+			validated = append(validated, guest)
+		}
+	}
 
 	s.mu.Lock()
 	s.accounts = validated
 	s.initialized = true
 	s.mu.Unlock()
 
-	if err := s.store.SaveAllAccounts(validated); err != nil && !isReadonlyStoreError(err) {
+	if err := s.store.SaveAllAccounts(filterPersistentAccounts(validated)); err != nil && !isReadonlyStoreError(err) {
 		s.logger.WarnModule("ACCOUNT", "保存初始化后的账号状态失败: %v", err)
 	}
 
@@ -122,6 +129,9 @@ func (s *Service) Close() {
 }
 
 func (s *Service) ensureAccountReady(ctx context.Context, account storage.Account) (storage.Account, bool) {
+	if account.IsGuest() {
+		return s.ensureGuestReady(ctx)
+	}
 	if valid, _, ok := decodeJWTExpiry(account.Token); ok && valid {
 		account.Expires, _ = decodeExpiry(account.Token)
 		return account, true
@@ -142,6 +152,27 @@ func (s *Service) ensureAccountReady(ctx context.Context, account storage.Accoun
 	account.Token = token
 	account.Expires = exp
 	return account, true
+}
+
+func (s *Service) ensureGuestReady(ctx context.Context) (storage.Account, bool) {
+	if _, err := s.client.EnsureGuestCookieHeader(ctx); err != nil {
+		s.logger.WarnModule("ACCOUNT", "游客 cookie 预热失败，将在首次请求时继续重试: %v", err)
+	}
+	return storage.Account{
+		Email:  guestAccountEmail,
+		Source: storage.AccountSourceGuest,
+	}, true
+}
+
+func filterPersistentAccounts(accounts []storage.Account) []storage.Account {
+	filtered := make([]storage.Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.IsGuest() {
+			continue
+		}
+		filtered = append(filtered, account)
+	}
+	return filtered
 }
 
 func decodeExpiry(token string) (int64, error) {
@@ -265,14 +296,23 @@ func (s *Service) AddAccountWithToken(email, password, token string, expires int
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := append([]storage.Account(nil), s.accounts...)
 	for _, existing := range s.accounts {
 		if strings.EqualFold(existing.Email, email) {
 			return errors.New("账号已存在")
 		}
 	}
+	filtered := s.accounts[:0]
+	for _, existing := range s.accounts {
+		if existing.IsGuest() {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	s.accounts = filtered
 	s.accounts = append(s.accounts, account)
 	if err := s.store.SaveAccount(account); err != nil && !isReadonlyStoreError(err) {
-		s.accounts = s.accounts[:len(s.accounts)-1]
+		s.accounts = previous
 		return err
 	}
 	return nil
@@ -285,6 +325,9 @@ func (s *Service) DeleteAccount(email string) error {
 	index := -1
 	for i, account := range s.accounts {
 		if strings.EqualFold(account.Email, email) {
+			if account.IsGuest() {
+				return errors.New("游客账号不可删除")
+			}
 			index = i
 			break
 		}
@@ -296,6 +339,11 @@ func (s *Service) DeleteAccount(email string) error {
 	s.accounts = append(s.accounts[:index], s.accounts[index+1:]...)
 	delete(s.failures, email)
 	delete(s.lastUsed, email)
+	if len(filterPersistentAccounts(s.accounts)) == 0 {
+		if guest, ok := s.ensureGuestReady(context.Background()); ok {
+			s.accounts = append(s.accounts, guest)
+		}
+	}
 	if err := s.store.DeleteAccount(email); err != nil && !isReadonlyStoreError(err) {
 		return err
 	}
@@ -308,6 +356,13 @@ func (s *Service) RefreshAccount(ctx context.Context, email string) error {
 	for i, account := range s.accounts {
 		if !strings.EqualFold(account.Email, email) {
 			continue
+		}
+		if account.IsGuest() {
+			if _, err := s.client.RefreshGuestCookieHeader(ctx); err != nil {
+				return err
+			}
+			s.failures[email] = 0
+			return nil
 		}
 		token, err := s.tokenMgr.Login(ctx, account.Email, account.Password)
 		if err != nil {
@@ -333,6 +388,12 @@ func (s *Service) RefreshAllAccounts(ctx context.Context, thresholdHours int) (i
 	accounts := s.Accounts()
 	refreshed := 0
 	for _, account := range accounts {
+		if account.IsGuest() {
+			if err := s.RefreshAccount(ctx, account.Email); err == nil {
+				refreshed++
+			}
+			continue
+		}
 		if remainingHours(account.Expires) > float64(thresholdHours) {
 			continue
 		}
@@ -430,7 +491,7 @@ func (s *Service) availableLocked() []storage.Account {
 	result := make([]storage.Account, 0, len(s.accounts))
 	now := time.Now()
 	for _, account := range s.accounts {
-		if strings.TrimSpace(account.Token) == "" {
+		if !account.IsGuest() && strings.TrimSpace(account.Token) == "" {
 			continue
 		}
 		failures := s.failures[account.Email]
@@ -453,7 +514,7 @@ func (s *Service) roundRobinLocked() storage.Account {
 		}
 		account := s.accounts[s.currentIndex]
 		s.currentIndex++
-		if strings.TrimSpace(account.Token) != "" {
+		if account.IsGuest() || strings.TrimSpace(account.Token) != "" {
 			return account
 		}
 	}
@@ -482,6 +543,13 @@ func remainingHours(expires int64) float64 {
 }
 
 func RuntimeForAccount(account storage.Account) RuntimeState {
+	if account.IsGuest() {
+		return RuntimeState{
+			Status:         "valid",
+			RemainingHours: -1,
+			ExpiresAt:      "",
+		}
+	}
 	if strings.TrimSpace(account.Token) == "" || account.Expires <= 0 {
 		return RuntimeState{
 			Status:         "invalid",
@@ -540,7 +608,7 @@ func (s *Service) rotationStats() RotationStats {
 	for _, account := range s.accounts {
 		lastUsed := s.lastUsed[account.Email]
 		failures := s.failures[account.Email]
-		ok := strings.TrimSpace(account.Token) != ""
+		ok := account.IsGuest() || strings.TrimSpace(account.Token) != ""
 		if ok && failures >= 3 && !lastUsed.IsZero() && now.Sub(lastUsed) < 5*time.Minute {
 			ok = false
 		}

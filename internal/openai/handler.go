@@ -21,6 +21,7 @@ import (
 	"qwen2api/internal/logging"
 	"qwen2api/internal/metrics"
 	"qwen2api/internal/qwen"
+	"qwen2api/internal/storage"
 	"qwen2api/internal/toolcall"
 )
 
@@ -438,6 +439,104 @@ func cloneMessageList(messages []map[string]any) []map[string]any {
 		cloned = append(cloned, cloneMap(message))
 	}
 	return cloned
+}
+
+func buildChatRequestBody(session storage.Account, model, chatID, chatType string, messages []map[string]any) map[string]any {
+	if session.IsGuest() {
+		return buildGuestChatRequestBody(model, chatID, chatType, messages)
+	}
+	return map[string]any{
+		"stream":             true,
+		"incremental_output": true,
+		"chat_id":            chatID,
+		"chat_type":          chatType,
+		"model":              model,
+		"messages":           messages,
+		"session_id":         fmt.Sprintf("%d", time.Now().UnixNano()),
+		"id":                 fmt.Sprintf("%d", time.Now().UnixNano()),
+		"sub_chat_type":      chatType,
+		"chat_mode":          "normal",
+	}
+}
+
+func buildGuestChatRequestBody(model, chatID, chatType string, messages []map[string]any) map[string]any {
+	return map[string]any{
+		"stream":             true,
+		"version":            "2.1",
+		"incremental_output": true,
+		"chat_id":            chatID,
+		"chat_mode":          "guest",
+		"model":              model,
+		"parent_id":          nil,
+		"messages":           decorateGuestMessages(model, chatType, messages),
+		"timestamp":          time.Now().Unix(),
+	}
+}
+
+func decorateGuestMessages(model, chatType string, messages []map[string]any) []map[string]any {
+	decorated := make([]map[string]any, 0, len(messages))
+	messageTimestamp := time.Now().Unix()
+	for _, message := range messages {
+		item := cloneMap(message)
+		if _, ok := item["fid"]; !ok || strings.TrimSpace(fmt.Sprint(item["fid"])) == "" || fmt.Sprint(item["fid"]) == "<nil>" {
+			item["fid"] = fmt.Sprintf("%d", time.Now().UnixNano())
+		}
+		if _, ok := item["parentId"]; !ok {
+			item["parentId"] = nil
+		}
+		if _, ok := item["childrenIds"]; !ok {
+			item["childrenIds"] = []string{}
+		}
+		if _, ok := item["user_action"]; !ok || strings.TrimSpace(fmt.Sprint(item["user_action"])) == "" || fmt.Sprint(item["user_action"]) == "<nil>" {
+			item["user_action"] = "chat"
+		}
+		if _, ok := item["files"]; !ok {
+			item["files"] = []any{}
+		}
+		if _, ok := item["timestamp"]; !ok {
+			item["timestamp"] = messageTimestamp
+		}
+		if _, ok := item["models"]; !ok {
+			item["models"] = []string{model}
+		}
+		item["chat_type"] = chatType
+		item["sub_chat_type"] = chatType
+		if _, ok := item["parent_id"]; !ok {
+			item["parent_id"] = nil
+		}
+
+		featureConfig, _ := item["feature_config"].(map[string]any)
+		item["feature_config"] = normalizeGuestFeatureConfig(featureConfig)
+
+		extra, _ := item["extra"].(map[string]any)
+		if extra == nil {
+			extra = map[string]any{}
+		}
+		meta, _ := extra["meta"].(map[string]any)
+		if meta == nil {
+			meta = map[string]any{}
+		}
+		meta["subChatType"] = chatType
+		extra["meta"] = meta
+		item["extra"] = extra
+
+		decorated = append(decorated, item)
+	}
+	return decorated
+}
+
+func normalizeGuestFeatureConfig(featureConfig map[string]any) map[string]any {
+	if featureConfig == nil {
+		featureConfig = map[string]any{}
+	}
+	featureConfig["thinking_enabled"] = true
+	featureConfig["output_schema"] = "phase"
+	featureConfig["research_mode"] = "normal"
+	featureConfig["auto_thinking"] = true
+	featureConfig["thinking_mode"] = "Auto"
+	featureConfig["thinking_format"] = "summary"
+	featureConfig["auto_search"] = true
+	return featureConfig
 }
 
 func detectMediaURL(item map[string]any) (field string, url string) {
@@ -1491,6 +1590,10 @@ func (h *Handler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) generateAsset(ctx context.Context, requestedModel, chatType, size string, messages []map[string]any) (string, error) {
+	return h.generateAssetWithSession(ctx, requestedModel, chatType, size, messages, true)
+}
+
+func (h *Handler) generateAssetWithSession(ctx context.Context, requestedModel, chatType, size string, messages []map[string]any, allowGuestRefresh bool) (string, error) {
 	model, _ := h.ResolveModel(ctx, requestedModel, chatType)
 	session, err := h.accounts.GetAccountSession()
 	if err != nil {
@@ -1501,34 +1604,32 @@ func (h *Handler) generateAsset(ctx context.Context, requestedModel, chatType, s
 	if err != nil {
 		return "", err
 	}
-	chatID, err := h.qwen.NewChat(ctx, session.Token, model)
+	chatID, err := h.qwen.NewChat(ctx, session.Token, model, chatType)
 	if err != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
+			return h.generateAssetWithSession(ctx, requestedModel, chatType, size, messages, false)
+		}
 		return "", err
 	}
 
-	body := map[string]any{
-		"stream":             true,
-		"incremental_output": true,
-		"chat_id":            chatID,
-		"chat_type":          chatType,
-		"model":              model,
-		"messages":           normalizedMessages,
-		"session_id":         fmt.Sprintf("%d", time.Now().UnixNano()),
-		"id":                 fmt.Sprintf("%d", time.Now().UnixNano()),
-		"sub_chat_type":      chatType,
-		"chat_mode":          "normal",
-	}
+	body := buildChatRequestBody(session, model, chatID, chatType, normalizedMessages)
 	if size != "" {
 		body["size"] = size
 	}
 	resp, err := h.qwen.ChatCompletions(ctx, session.Token, chatID, body)
 	if err != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
+			return h.generateAssetWithSession(ctx, requestedModel, chatType, size, messages, false)
+		}
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	result, err := readAssetResult(resp.Body)
 	if err != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
+			return h.generateAssetWithSession(ctx, requestedModel, chatType, size, messages, false)
+		}
 		return "", err
 	}
 	if result.UpstreamError != nil && result.UpstreamError.Retryable {
@@ -1544,6 +1645,9 @@ func (h *Handler) generateAsset(ctx context.Context, requestedModel, chatType, s
 		}
 	}
 	if result.UpstreamError != nil {
+		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, result.UpstreamError) == nil {
+			return h.generateAssetWithSession(ctx, requestedModel, chatType, size, messages, false)
+		}
 		return "", result.UpstreamError
 	}
 
