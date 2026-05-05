@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.5.0...v0.6.0) (2026-05-05)
+
+
+### Features
+
+* boom 重构前端 ([34a3011](https://github.com/XxxXTeam/Qwen2API_Go/commit/34a30112342514e75b9c98083bdb8b44b719d974))
+* del chat ([0cc14f6](https://github.com/XxxXTeam/Qwen2API_Go/commit/0cc14f6d416d7f1b8e1325d265b50c7370844b14))
+* reasoning_effort 兼容 ([231cb26](https://github.com/XxxXTeam/Qwen2API_Go/commit/231cb26d43f22ac60289c8bd11a20d9117f99a41))
+* 无独有偶,我已放弃 ([be003b8](https://github.com/XxxXTeam/Qwen2API_Go/commit/be003b8aa5711764a787fc59746d8db59146515e))
+
+
+### Bug Fixes
+
+* README ([993037e](https://github.com/XxxXTeam/Qwen2API_Go/commit/993037efcc1273c033722ce700282ee9ac57b7b5))
+
 ## [0.5.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.4.0...v0.5.0) (2026-04-30)
 
 
