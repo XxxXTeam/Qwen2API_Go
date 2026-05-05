@@ -274,6 +274,24 @@ func TestEnsureGuestCookieHeaderUsesAuthPyBootstrapSequence(t *testing.T) {
 				if req.Method != http.MethodPost {
 					t.Fatalf("users/status method = %s, want POST", req.Method)
 				}
+				raw, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("ReadAll(users/status) error = %v", err)
+				}
+				var payload map[string]any
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatalf("Unmarshal(users/status) error = %v", err)
+				}
+				typarms, _ := payload["typarms"].(map[string]any)
+				if typarms == nil {
+					t.Fatal("expected typarms payload for users/status")
+				}
+				if got := strings.TrimSpace(anyString(typarms["project_id"])); got != "" {
+					t.Fatalf("project_id = %q, want empty string", got)
+				}
+				if got := strings.TrimSpace(anyString(typarms["cdn_version"])); got != "0.2.45" {
+					t.Fatalf("cdn_version = %q, want %q", got, "0.2.45")
+				}
 			default:
 				t.Fatalf("unexpected path: %s", req.URL.Path)
 			}
@@ -310,6 +328,9 @@ func TestEnsureGuestCookieHeaderUsesAuthPyBootstrapSequence(t *testing.T) {
 	if !strings.Contains(cookieHeader, "cna=") {
 		t.Fatalf("expected generated cna in cookie header, got %q", cookieHeader)
 	}
+	if !strings.Contains(cookieHeader, "ssxmod_itna=") || !strings.Contains(cookieHeader, "ssxmod_itna2=") {
+		t.Fatalf("expected ssxmod cookies in guest cookie header, got %q", cookieHeader)
+	}
 }
 
 func TestEnsureGuestCookieHeaderFallsBackWhenBootstrapFails(t *testing.T) {
@@ -325,7 +346,7 @@ func TestEnsureGuestCookieHeaderFallsBackWhenBootstrapFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureGuestCookieHeader() error = %v", err)
 	}
-	for _, key := range []string{"cna=", "_bl_uid=", "atpsida=", "x-ap=", "sca=", "tfstk=", "isg="} {
+	for _, key := range []string{"cna=", "_bl_uid=", "atpsida=", "x-ap=", "sca=", "tfstk=", "isg=", "ssxmod_itna=", "ssxmod_itna2="} {
 		if !strings.Contains(cookieHeader, key) {
 			t.Fatalf("expected fallback cookie %q in %q", key, cookieHeader)
 		}

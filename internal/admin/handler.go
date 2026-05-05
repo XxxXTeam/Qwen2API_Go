@@ -87,6 +87,7 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		"outThink":              runtime.OutThink,
 		"searchInfoMode":        runtime.SearchInfoMode,
 		"simpleModelMap":        runtime.SimpleModelMap,
+		"chatCleanupMode":       runtime.ChatCleanupMode,
 	})
 }
 
@@ -238,6 +239,28 @@ func (h *Handler) HandleSimpleModelMap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "简化模型映射设置更新成功，已热更新并写入 .env"})
 }
 
+func (h *Handler) HandleSetChatCleanupMode(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ChatCleanupMode int `json:"chatCleanupMode"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误"})
+		return
+	}
+	if payload.ChatCleanupMode < 0 || payload.ChatCleanupMode > 2 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "无效的对话清理模式，允许值为 0-2"})
+		return
+	}
+	if err := h.persistRuntimeSettings(func(snapshot *config.RuntimeSnapshot) {
+		snapshot.ChatCleanupMode = payload.ChatCleanupMode
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	h.runtime.SetChatCleanupMode(payload.ChatCleanupMode)
+	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "对话清理模式更新成功，已热更新并写入 .env"})
+}
+
 func (h *Handler) HandleReloadRuntimeConfig(w http.ResponseWriter, r *http.Request) {
 	if err := config.ReloadDotEnv(config.DefaultEnvPath); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "重新加载 .env 失败: " + err.Error()})
@@ -269,6 +292,7 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 			"autoRefresh":           runtime.AutoRefresh,
 			"autoRefreshInterval":   runtime.AutoRefreshInterval,
 			"batchLoginConcurrency": runtime.BatchLoginConcurrency,
+			"chatCleanupMode":       runtime.ChatCleanupMode,
 			"logLevel":              h.cfg.LogLevel,
 			"enableFileLog":         h.cfg.EnableFileLog,
 		},

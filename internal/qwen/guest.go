@@ -1,8 +1,10 @@
 package qwen
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"qwen2api/internal/ssxmod"
 )
 
 const (
@@ -29,7 +33,7 @@ type guestBootstrapRequest struct {
 	method  string
 	url     string
 	headers http.Header
-	body    io.Reader
+	body    any
 	timeout time.Duration
 }
 
@@ -79,6 +83,7 @@ func (c *Client) fetchAnonymousCookieHeader(ctx context.Context) (string, error)
 	if err != nil {
 		return "", err
 	}
+	fp := guestRequestFingerprint()
 
 	browserHeaders := http.Header{
 		"User-Agent":                []string{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"},
@@ -89,14 +94,29 @@ func (c *Client) fetchAnonymousCookieHeader(ctx context.Context) (string, error)
 		"Upgrade-Insecure-Requests": []string{"1"},
 	}
 	apiHeaders := http.Header{
-		"User-Agent":      []string{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"},
-		"Accept":          []string{"application/json, text/plain, */*"},
-		"Accept-Language": []string{"zh-CN,zh;q=0.9,en;q=0.8"},
-		"Accept-Encoding": []string{"gzip, deflate, br"},
-		"Connection":      []string{"keep-alive"},
-		"Version":         []string{"0.2.45"},
-		"Source":          []string{"web"},
-		"Timezone":        []string{time.Now().Format("Mon Jan 02 2006 15:04:05 GMT-0700")},
+		"User-Agent":                  []string{fp.UserAgent},
+		"Accept":                      []string{"application/json, text/plain, */*"},
+		"Accept-Language":             []string{fp.AcceptLanguage},
+		"Accept-Encoding":             []string{fp.AcceptEncoding},
+		"Connection":                  []string{"keep-alive"},
+		"Version":                     []string{"0.2.45"},
+		"bx-v":                        []string{"2.5.36"},
+		"Source":                      []string{"web"},
+		"Timezone":                    []string{fp.Timezone},
+		"sec-ch-ua":                   []string{fp.SecChUA},
+		"sec-ch-ua-full-version":      []string{fp.SecChUAFullVersion},
+		"sec-ch-ua-full-version-list": []string{fp.SecChUAFullVersionList},
+		"sec-ch-ua-platform":          []string{fp.SecChUAPlatform},
+		"sec-ch-ua-platform-version":  []string{fp.SecChUAPlatformVersion},
+		"sec-ch-ua-mobile":            []string{fp.SecChUAMobile},
+		"sec-ch-ua-arch":              []string{fp.SecChUAArch},
+		"sec-ch-ua-bitness":           []string{fp.SecChUABitness},
+		"Cache-Control":               []string{fp.CacheControl},
+		"Pragma":                      []string{fp.Pragma},
+		"Priority":                    []string{fp.Priority},
+		"DNT":                         []string{fp.DNT},
+		"Content-Type":                []string{"application/json"},
+		"X-Request-Id":                []string{newRequestID()},
 	}
 
 	cookies := map[string]string{
@@ -120,6 +140,16 @@ func (c *Client) fetchAnonymousCookieHeader(ctx context.Context) (string, error)
 		cookies["cna"] = generateCNA()
 	}
 	fillGuestCookieDefaults(cookies)
+	if strings.TrimSpace(cookies["ssxmod_itna"]) == "" || strings.TrimSpace(cookies["ssxmod_itna2"]) == "" {
+		manager := ssxmod.NewManager()
+		itna, itna2 := manager.Get()
+		if strings.TrimSpace(cookies["ssxmod_itna"]) == "" {
+			cookies["ssxmod_itna"] = itna
+		}
+		if strings.TrimSpace(cookies["ssxmod_itna2"]) == "" {
+			cookies["ssxmod_itna2"] = itna2
+		}
+	}
 	if len(bootstrapErrs) > 0 && c.logger != nil {
 		c.logger.WarnModule("UPSTREAM", "guest cookie bootstrap degraded, using synthetic defaults where needed err=%v", errors.Join(bootstrapErrs...))
 	}
@@ -127,12 +157,38 @@ func (c *Client) fetchAnonymousCookieHeader(ctx context.Context) (string, error)
 }
 
 func (c *Client) guestBootstrapRequests(browserHeaders, apiHeaders http.Header) []guestBootstrapRequest {
+	domain := ""
+	if parsed, err := url.Parse(c.baseURL); err == nil {
+		domain = parsed.Host
+	}
+	nowMs := time.Now().UnixMilli()
+	beaconPayload := map[string]any{
+		"typarms": map[string]any{
+			"typarm1":        "web",
+			"typarm2":        "",
+			"typarm3":        "prod",
+			"typarm4":        "qwen_chat",
+			"typarm5":        "product",
+			"typarm6":        "",
+			"orgid":          "tongyi",
+			"share_id":       "",
+			"project_id":     "",
+			"channel_type":   "",
+			"community_type": "",
+			"from_id":        "",
+			"cdn_version":    "0.2.45",
+			"spmId":          "a2ty_o01.29997169",
+			"aemPageId":      "//" + domain + "/",
+			"domain":         domain,
+			"timestamp":      nowMs,
+		},
+	}
 	return []guestBootstrapRequest{
 		{method: http.MethodGet, url: c.baseURL + "/", headers: browserHeaders, timeout: guestBootstrapHomeTimeout},
 		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
 		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/setting-config", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
 		{method: http.MethodGet, url: c.baseURL + "/api/v2/tts/config?omni_speakers=v1&audio_tts_speakers=v1&omni_language=v1&audio_tts_language=v1", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
-		{method: http.MethodPost, url: c.baseURL + "/api/v2/users/status", headers: apiHeaders, body: http.NoBody, timeout: guestBootstrapAPITimeout},
+		{method: http.MethodPost, url: c.baseURL + "/api/v2/users/status", headers: apiHeaders, body: beaconPayload, timeout: guestBootstrapAPITimeout},
 		{method: http.MethodGet, url: c.baseURL + "/api/v1/auths/", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
 	}
 }
@@ -163,7 +219,15 @@ func (c *Client) bootstrapGuestRequest(ctx context.Context, client *http.Client,
 	}
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(requestCtx, request.method, request.url, request.body)
+	var bodyReader io.Reader
+	if request.body != nil {
+		rawBody, err := json.Marshal(request.body)
+		if err != nil {
+			return err
+		}
+		bodyReader = bytes.NewReader(rawBody)
+	}
+	req, err := http.NewRequestWithContext(requestCtx, request.method, request.url, bodyReader)
 	if err != nil {
 		return err
 	}
@@ -184,6 +248,9 @@ func (c *Client) bootstrapGuestRequest(ctx context.Context, client *http.Client,
 			}
 			cookies[cookie.Name] = cookie.Value
 		}
+	}
+	if region := strings.TrimSpace(resp.Header.Get("ga-ap")); region != "" {
+		cookies["x-ap"] = region
 	}
 	return nil
 }
@@ -229,12 +296,26 @@ func fillGuestCookieDefaults(cookies map[string]string) {
 }
 
 func generateCNA() string {
-	return randomAlphaNumeric(24) + "ICAUB2nKgBJlzs"
+	return randomAlphaNumeric(10) + "ICAUB2nKgBJlzs"
 }
 
 func formatCookieMap(cookies map[string]string) string {
 	if len(cookies) == 0 {
 		return ""
+	}
+	preferred := []string{
+		"cna",
+		"xlly_s",
+		"sca",
+		"x-ap",
+		"qwen-theme",
+		"qwen-locale",
+		"atpsida",
+		"_bl_uid",
+		"isg",
+		"tfstk",
+		"ssxmod_itna",
+		"ssxmod_itna2",
 	}
 	keys := make([]string, 0, len(cookies))
 	for key, value := range cookies {
@@ -245,8 +326,24 @@ func formatCookieMap(cookies map[string]string) string {
 	}
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(preferred))
+	for _, key := range preferred {
+		value := strings.TrimSpace(cookies[key])
+		if strings.TrimSpace(key) == "" || value == "" {
+			continue
+		}
+		parts = append(parts, key+"="+value)
+		seen[key] = struct{}{}
+	}
 	for _, key := range keys {
-		parts = append(parts, key+"="+cookies[key])
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		value := strings.TrimSpace(cookies[key])
+		if strings.TrimSpace(key) == "" || value == "" {
+			continue
+		}
+		parts = append(parts, key+"="+value)
 	}
 	return strings.Join(parts, "; ")
 }

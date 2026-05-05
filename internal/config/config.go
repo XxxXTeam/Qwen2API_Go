@@ -28,6 +28,7 @@ type Config struct {
 	MaxLogFiles           int
 	QwenChatProxyURL      string
 	ProxyURL              string
+	ChatCleanupMode       int
 }
 
 func Load() Config {
@@ -59,6 +60,7 @@ func Load() Config {
 		MaxLogFiles:           getEnvInt("MAX_LOG_FILES", 5),
 		QwenChatProxyURL:      getEnv("QWEN_CHAT_PROXY_URL", "https://chat.qwen.ai"),
 		ProxyURL:              os.Getenv("PROXY_URL"),
+		ChatCleanupMode:       getEnvInt("CHAT_CLEANUP_MODE", 0),
 	}
 }
 

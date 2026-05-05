@@ -88,6 +88,7 @@ export type SettingsResponse = {
   outThink: boolean;
   searchInfoMode: "table" | "text";
   simpleModelMap: boolean;
+  chatCleanupMode: number;
 };
 
 export type AccountStatus = "valid" | "expiringSoon" | "expired" | "invalid";

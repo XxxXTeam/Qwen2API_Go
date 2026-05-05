@@ -10,6 +10,7 @@ type Runtime struct {
 	outThink              bool
 	searchInfoMode        string
 	simpleModelMap        bool
+	chatCleanupMode       int
 }
 
 func NewRuntime(cfg Config) *Runtime {
@@ -20,6 +21,7 @@ func NewRuntime(cfg Config) *Runtime {
 		outThink:              cfg.OutThink,
 		searchInfoMode:        cfg.SearchInfoMode,
 		simpleModelMap:        cfg.SimpleModelMap,
+		chatCleanupMode:       cfg.ChatCleanupMode,
 	}
 }
 
@@ -33,6 +35,7 @@ func (r *Runtime) Snapshot() RuntimeSnapshot {
 		OutThink:              r.outThink,
 		SearchInfoMode:        r.searchInfoMode,
 		SimpleModelMap:        r.simpleModelMap,
+		ChatCleanupMode:       r.chatCleanupMode,
 	}
 }
 
@@ -43,6 +46,7 @@ type RuntimeSnapshot struct {
 	OutThink              bool
 	SearchInfoMode        string
 	SimpleModelMap        bool
+	ChatCleanupMode       int
 }
 
 func (r *Runtime) SetAutoRefresh(enabled bool, interval int) {
@@ -76,6 +80,12 @@ func (r *Runtime) SetSimpleModelMap(v bool) {
 	r.simpleModelMap = v
 }
 
+func (r *Runtime) SetChatCleanupMode(v int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.chatCleanupMode = v
+}
+
 func (r *Runtime) ApplySnapshot(snapshot RuntimeSnapshot) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -85,4 +95,5 @@ func (r *Runtime) ApplySnapshot(snapshot RuntimeSnapshot) {
 	r.outThink = snapshot.OutThink
 	r.searchInfoMode = snapshot.SearchInfoMode
 	r.simpleModelMap = snapshot.SimpleModelMap
+	r.chatCleanupMode = snapshot.ChatCleanupMode
 }

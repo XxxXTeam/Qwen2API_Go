@@ -55,6 +55,7 @@ func (h *Handler) executeChatRequest(ctx context.Context, payload executedChatRe
 				executed, status, err := h.sendChatWithSession(ctx, prepared, session, mapped.ChatID, true)
 				if err == nil {
 					h.sessions.Save(prepared.ContextHash, session.Email, mapped.ChatID, prepared.Model, prepared.ChatType)
+					h.recordChatUsage(session.Email, mapped.ChatID)
 					return executed, status, nil
 				}
 				if upstreamErr, ok := err.(*qwen.UpstreamError); ok {
@@ -90,6 +91,7 @@ func (h *Handler) executeChatRequest(ctx context.Context, payload executedChatRe
 			if prepared.ContextHash != "" {
 				if chatID := chatIDFromStream(executed.Stream); chatID != "" {
 					h.sessions.Save(prepared.ContextHash, session.Email, chatID, prepared.Model, prepared.ChatType)
+					h.recordChatUsage(session.Email, chatID)
 				}
 			}
 			return executed, status, nil
@@ -296,4 +298,13 @@ func (h *Handler) readCompletedChat(body io.Reader, model string, toolNames []st
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
 	}, nil, nil
+}
+
+func (h *Handler) recordChatUsage(accountEmail, chatID string) {
+	if h.chatTracker == nil || strings.TrimSpace(accountEmail) == "" || strings.TrimSpace(chatID) == "" {
+		return
+	}
+	if err := h.chatTracker.RecordChatUsage(accountEmail, chatID); err != nil && h.logger != nil {
+		h.logger.WarnModule("OPENAI", "记录对话使用失败 account=%s chat_id=%s err=%v", accountEmail, chatID, err)
+	}
 }

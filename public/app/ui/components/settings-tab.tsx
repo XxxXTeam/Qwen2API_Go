@@ -15,6 +15,7 @@ export function SettingsTab({
   refreshAllAccounts,
   reloadRuntimeConfig,
   saveSettings,
+  saveChatCleanupMode,
 }: {
   settings: SettingsResponse | null;
   savingSettings: boolean;
@@ -28,6 +29,7 @@ export function SettingsTab({
   refreshAllAccounts: (force: boolean) => Promise<void>;
   reloadRuntimeConfig: () => Promise<void>;
   saveSettings: (path: string, body: Record<string, unknown>, successMessage: string) => Promise<void>;
+  saveChatCleanupMode: (mode: number) => Promise<void>;
 }) {
   const enabledStrategies = [
     settings?.autoRefresh ?? false,
@@ -246,6 +248,30 @@ export function SettingsTab({
                       }
                     >
                       保存搜索模式
+                    </button>
+                  </div>
+                  <div className="admin-form-group">
+                    <label>对话清理模式</label>
+                    <select
+                      className="admin-select"
+                      value={String(settings?.chatCleanupMode ?? 0)}
+                      onChange={(e) =>
+                        setSettings((c) => (c ? { ...c, chatCleanupMode: Number(e.target.value) } : c))
+                      }
+                    >
+                      <option value="0">不删除</option>
+                      <option value="1">仅删除程序创建的对话</option>
+                      <option value="2">删除全部过期对话</option>
+                    </select>
+                    <button
+                      className="admin-btn admin-btn-secondary admin-btn-sm self-start mt-1"
+                      disabled={!settings || savingSettings}
+                      onClick={() =>
+                        settings &&
+                        void saveChatCleanupMode(settings.chatCleanupMode)
+                      }
+                    >
+                      保存清理模式
                     </button>
                   </div>
                 </div>

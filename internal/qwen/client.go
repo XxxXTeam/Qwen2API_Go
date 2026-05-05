@@ -166,10 +166,12 @@ func (c *Client) buildCookieHeader(ctx context.Context, token string) (string, e
 			parts = append(parts, guestCookie)
 		}
 	}
-	if strings.TrimSpace(ssxmodITNA) != "" {
+	currentCookies := strings.Join(parts, "; ")
+	if strings.TrimSpace(ssxmodITNA) != "" && !strings.Contains(currentCookies, "ssxmod_itna=") {
 		parts = append(parts, "ssxmod_itna="+ssxmodITNA)
 	}
-	if strings.TrimSpace(ssxmodITNA2) != "" {
+	currentCookies = strings.Join(parts, "; ")
+	if strings.TrimSpace(ssxmodITNA2) != "" && !strings.Contains(currentCookies, "ssxmod_itna2=") {
 		parts = append(parts, "ssxmod_itna2="+ssxmodITNA2)
 	}
 	return strings.Join(parts, "; "), nil
@@ -528,6 +530,72 @@ func (c *Client) GetChatDetail(ctx context.Context, token, chatID string) (map[s
 		return nil, err
 	}
 	return payload, nil
+}
+
+type ChatItem struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	UpdatedAt int64  `json:"updated_at"`
+	CreatedAt int64  `json:"created_at"`
+	ChatType  string `json:"chat_type"`
+}
+
+func (c *Client) ListChats(ctx context.Context, token string, page int) ([]ChatItem, error) {
+	path := fmt.Sprintf("/api/v2/chats/?page=%d&exclude_project=true", page)
+	req, err := c.newRequest(ctx, http.MethodGet, path, token, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		Success bool       `json:"success"`
+		Data    []ChatItem `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	if !payload.Success {
+		return nil, errors.New("列出对话失败")
+	}
+	return payload.Data, nil
+}
+
+func (c *Client) DeleteChat(ctx context.Context, token, chatID string) error {
+	req, err := c.newRequestWithOptions(ctx, http.MethodDelete, "/api/v2/chats/"+url.PathEscape(chatID), token, nil, RequestOptions{
+		Accept:      "application/json, text/plain, */*",
+		ContentType: "",
+		IncludeAuth: true,
+		Headers: http.Header{
+			"X-Request-Id": []string{newRequestID()},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Status bool `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return err
+	}
+	if !payload.Success || !payload.Data.Status {
+		return errors.New("删除对话失败")
+	}
+	return nil
 }
 
 func (c *Client) GetVideoTaskStatus(ctx context.Context, token, taskID string) (map[string]any, error) {

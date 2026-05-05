@@ -343,6 +343,9 @@ export function useAdminConsole() {
       setThresholdHours,
       setSettings,
       setActiveTab,
+      saveChatCleanupMode: async (mode: number) => {
+        await saveSettings("/api/setChatCleanupMode", { chatCleanupMode: mode }, "对话清理模式已更新。");
+      },
       toggleSidebar: () => setSidebarCollapsed((current) => !current),
       toggleTheme: () => setThemeMode((current) => (current === "light" ? "dark" : "light")),
       createAccount: async () => {

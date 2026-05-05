@@ -234,6 +234,7 @@ export function AdminDashboard() {
               refreshAllAccounts={actions.refreshAllAccounts}
               reloadRuntimeConfig={actions.reloadRuntimeConfig}
               saveSettings={actions.saveSettings}
+              saveChatCleanupMode={actions.saveChatCleanupMode}
             />
           ) : null}
 

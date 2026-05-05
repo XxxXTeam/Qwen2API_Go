@@ -28,24 +28,26 @@ import (
 var dataURIExpr = regexp.MustCompile(`^data:([^;]+);base64,(.*)$`)
 
 type Handler struct {
-	cfg      config.Config
-	runtime  *config.Runtime
-	qwen     *qwen.Client
-	accounts *account.Service
-	sessions *ConversationSessionService
-	metrics  *metrics.DashboardStats
-	logger   *logging.Logger
+	cfg         config.Config
+	runtime     *config.Runtime
+	qwen        *qwen.Client
+	accounts    *account.Service
+	sessions    *ConversationSessionService
+	chatTracker storage.ChatTracker
+	metrics     *metrics.DashboardStats
+	logger      *logging.Logger
 }
 
-func NewHandler(cfg config.Config, runtime *config.Runtime, qwenClient *qwen.Client, accounts *account.Service, sessions *ConversationSessionService, stats *metrics.DashboardStats, logger *logging.Logger) *Handler {
+func NewHandler(cfg config.Config, runtime *config.Runtime, qwenClient *qwen.Client, accounts *account.Service, sessions *ConversationSessionService, chatTracker storage.ChatTracker, stats *metrics.DashboardStats, logger *logging.Logger) *Handler {
 	return &Handler{
-		cfg:      cfg,
-		runtime:  runtime,
-		qwen:     qwenClient,
-		accounts: accounts,
-		sessions: sessions,
-		metrics:  stats,
-		logger:   logger,
+		cfg:         cfg,
+		runtime:     runtime,
+		qwen:        qwenClient,
+		accounts:    accounts,
+		sessions:    sessions,
+		chatTracker: chatTracker,
+		metrics:     stats,
+		logger:      logger,
 	}
 }
 

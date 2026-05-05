@@ -12,6 +12,7 @@ import (
 	"qwen2api/internal/account"
 	"qwen2api/internal/admin"
 	"qwen2api/internal/auth"
+	"qwen2api/internal/cleanup"
 	"qwen2api/internal/config"
 	"qwen2api/internal/logging"
 	"qwen2api/internal/metrics"
@@ -51,13 +52,22 @@ func main() {
 	qwenClient := qwen.NewClient(cfg, logger)
 	accountService := account.NewService(cfg, runtime, store, qwenClient, logger)
 	conversationSessions := openai.NewConversationSessionService(conversationStore, logger)
+	chatTracker, err := storage.NewChatTracker(cfg.RedisURL)
+	if err != nil {
+		logger.WarnModule("APP", "初始化对话追踪器失败: %v", err)
+		chatTracker = nil
+	}
+
+	cleanupService := cleanup.NewService(cfg, runtime, accountService, qwenClient, chatTracker, logger)
+	cleanupService.Start()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	defer accountService.Close()
+	defer cleanupService.Stop()
 
-	openAIHandler := openai.NewHandler(cfg, runtime, qwenClient, accountService, conversationSessions, stats, logger)
+	openAIHandler := openai.NewHandler(cfg, runtime, qwenClient, accountService, conversationSessions, chatTracker, stats, logger)
 	adminHandler := admin.NewHandler(cfg, runtime, keyring, accountService, openAIHandler, stats, logger)
 	httpServer := server.New(cfg, keyring, openAIHandler, adminHandler, stats, logger)
 	serverErrCh := make(chan error, 1)

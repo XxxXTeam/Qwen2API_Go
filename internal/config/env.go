@@ -55,6 +55,12 @@ LOG_DIR=./logs
 MAX_LOG_FILE_SIZE=10
 MAX_LOG_FILES=5
 
+# Chat cleanup mode
+# 0 = do not delete chats
+# 1 = delete only chats created by this program
+# 2 = delete all chats older than 1 day
+CHAT_CLEANUP_MODE=0
+
 # Cache/runtime flags
 CACHE_MODE=default
 `
@@ -107,6 +113,7 @@ func RuntimeSnapshotFromConfig(cfg Config) RuntimeSnapshot {
 		OutThink:              cfg.OutThink,
 		SearchInfoMode:        cfg.SearchInfoMode,
 		SimpleModelMap:        cfg.SimpleModelMap,
+		ChatCleanupMode:       cfg.ChatCleanupMode,
 	}
 }
 
@@ -196,5 +203,6 @@ func RuntimeSnapshotToEnv(snapshot RuntimeSnapshot) map[string]string {
 		"SIMPLE_MODEL_MAP":        strconv.FormatBool(snapshot.SimpleModelMap),
 		"SEARCH_INFO_MODE":        snapshot.SearchInfoMode,
 		"OUTPUT_THINK":            strconv.FormatBool(snapshot.OutThink),
+		"CHAT_CLEANUP_MODE":       strconv.Itoa(snapshot.ChatCleanupMode),
 	}
 }
