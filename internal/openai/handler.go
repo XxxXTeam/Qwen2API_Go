@@ -805,7 +805,11 @@ type chatRequest struct {
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	result, err := h.ListModelVariants(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		status := http.StatusBadGateway
+		if upstreamErr, ok := err.(*qwen.UpstreamError); ok {
+			status = normalizeUpstreamStatus(upstreamErr.StatusCode)
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

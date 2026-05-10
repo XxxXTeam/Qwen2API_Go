@@ -254,3 +254,11 @@ curl http://127.0.0.1:3000/v1/uploads \
 ```powershell
 go run ./cmd/qwen2api
 ```
+
+
+## 项目参考
+
+- [Lingma Proxy](https://github.com/Lutiancheng1/lingma-proxy)
+- [Qwen2API](https://github.com/Rfym21/Qwen2API)
+
+感谢以上项目提供的参考

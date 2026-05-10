@@ -170,6 +170,9 @@ func (h *Handler) sendChatWithSessionAttempt(ctx context.Context, prepared prepa
 			if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
 				return h.sendChatWithSessionAttempt(ctx, prepared, session, "", false, false)
 			}
+			if upstreamErr, ok := err.(*qwen.UpstreamError); ok {
+				return nil, normalizeUpstreamStatus(upstreamErr.StatusCode), err
+			}
 			return nil, http.StatusBadGateway, err
 		}
 	}
@@ -190,6 +193,9 @@ func (h *Handler) sendChatWithSessionAttempt(ctx context.Context, prepared prepa
 	if err != nil {
 		if allowGuestRefresh && session.IsGuest() && h.refreshGuestSession(ctx, session, err) == nil {
 			return h.sendChatWithSessionAttempt(ctx, prepared, session, "", false, false)
+		}
+		if upstreamErr, ok := err.(*qwen.UpstreamError); ok {
+			return nil, normalizeUpstreamStatus(upstreamErr.StatusCode), err
 		}
 		return nil, http.StatusBadGateway, err
 	}

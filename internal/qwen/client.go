@@ -215,6 +215,9 @@ func (c *Client) doOnce(req *http.Request) (*http.Response, error) {
 		body, _ := io.ReadAll(resp.Body)
 		trimmedBody := strings.TrimSpace(string(body))
 		c.logger.WarnModule("UPSTREAM", "upstream non-success method=%s url=%s status=%d duration=%s body=%q", req.Method, req.URL.String(), resp.StatusCode, time.Since(start), trimmedBody)
+		if isAlibabaHumanVerification(trimmedBody) {
+			return nil, newAlibabaHumanVerificationError()
+		}
 		return nil, fmt.Errorf("上游请求失败 (%d): %s", resp.StatusCode, trimmedBody)
 	}
 	return resp, nil

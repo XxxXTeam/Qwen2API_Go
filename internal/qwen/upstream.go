@@ -24,6 +24,8 @@ var (
 	}
 )
 
+const alibabaHumanVerificationMessage = "触发阿里人机验证，请先在浏览器完成验证，或更换账号/IP 后重试"
+
 type RequestOptions struct {
 	Accept      string
 	ContentType string
@@ -88,6 +90,10 @@ func InspectUpstreamStream(ctx context.Context, body io.ReadCloser) (*StreamInsp
 			copied := append([]byte(nil), chunk...)
 			bufferedChunks = append(bufferedChunks, copied)
 			textBuffer.Write(copied)
+			if isAlibabaHumanVerification(string(joinChunks(bufferedChunks))) {
+				_ = body.Close()
+				return &StreamInspectionResult{UpstreamError: newAlibabaHumanVerificationError()}, nil
+			}
 
 			payloads, rest := parseSSEPayloads(textBuffer.String(), false)
 			textBuffer.Reset()
@@ -178,6 +184,9 @@ func normalizeUpstreamError(payload map[string]any) *UpstreamError {
 	if payload == nil {
 		return nil
 	}
+	if raw, err := json.Marshal(payload); err == nil && isAlibabaHumanVerification(string(raw)) {
+		return newAlibabaHumanVerificationError()
+	}
 
 	var rawError map[string]any
 	if direct, ok := payload["error"].(map[string]any); ok {
@@ -237,6 +246,48 @@ func normalizeUpstreamError(payload map[string]any) *UpstreamError {
 		StatusCode: status,
 		Retryable:  isRetryableUpstreamError(code, details),
 	}
+}
+
+func newAlibabaHumanVerificationError() *UpstreamError {
+	return &UpstreamError{
+		Code:       "HumanVerificationRequired",
+		Message:    alibabaHumanVerificationMessage,
+		Details:    alibabaHumanVerificationMessage,
+		StatusCode: http.StatusTooManyRequests,
+		Retryable:  false,
+	}
+}
+
+func isAlibabaHumanVerification(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	markers := []string{
+		"人机验证",
+		"安全验证",
+		"验证码",
+		"滑块验证",
+		"请完成验证",
+		"完成验证",
+		"security verification",
+		"human verification",
+		"captcha",
+		"verifycenter",
+		"punish",
+		"x5sec",
+		"baxia",
+		"awsc",
+		"nc_1_n1z",
+		"aliyun.com/verify",
+		"cf.aliyun.com",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func NormalizeUpstreamError(payload map[string]any) *UpstreamError {

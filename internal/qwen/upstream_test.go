@@ -97,6 +97,43 @@ func TestNormalizeUpstreamErrorMapsDirectQuotaErrorTo429(t *testing.T) {
 	}
 }
 
+func TestNormalizeUpstreamErrorMapsAlibabaHumanVerificationTo429(t *testing.T) {
+	payload := map[string]any{
+		"error": map[string]any{
+			"message": "阿里云安全验证，请完成验证后继续访问",
+		},
+	}
+
+	result := NormalizeUpstreamError(payload)
+	if result == nil {
+		t.Fatal("expected upstream error, got nil")
+	}
+	if result.StatusCode != 429 {
+		t.Fatalf("expected status 429, got %d", result.StatusCode)
+	}
+	if result.Retryable {
+		t.Fatal("expected retryable=false")
+	}
+	if !strings.Contains(result.Error(), "人机验证") {
+		t.Fatalf("unexpected error message: %q", result.Error())
+	}
+}
+
+func TestInspectUpstreamStreamInterceptsAlibabaHumanVerificationHTML(t *testing.T) {
+	input := `<html><title>安全验证</title><script src="//g.alicdn.com/AWSC/AWSC"></script>请完成验证</html>`
+
+	result, err := InspectUpstreamStream(context.Background(), io.NopCloser(strings.NewReader(input)))
+	if err != nil {
+		t.Fatalf("InspectUpstreamStream() error = %v", err)
+	}
+	if result.UpstreamError == nil {
+		t.Fatal("expected upstream error, got nil")
+	}
+	if result.UpstreamError.StatusCode != 429 {
+		t.Fatalf("expected status 429, got %d", result.UpstreamError.StatusCode)
+	}
+}
+
 func TestInspectUpstreamStreamIgnoresNonJSONPrelude(t *testing.T) {
 	input := "event: ping\n\n" +
 		`data: {"choices":[{"delta":{"content":"hello"}}]}` + "\n\n"

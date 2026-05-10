@@ -548,6 +548,34 @@ func TestChatCompletionsUsesJSONAcceptWhenStreamFalse(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsMapsAlibabaHumanVerificationTo429(t *testing.T) {
+	client := NewClient(config.Config{QwenChatProxyURL: "https://chat.qwen.ai"}, logging.New(false))
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body:       io.NopCloser(strings.NewReader(`<html><title>安全验证</title>请完成验证<script src="awsc.js"></script></html>`)),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	_, err := client.ChatCompletions(context.Background(), "token-123", "chat-123", map[string]any{"stream": false})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	upstreamErr, ok := err.(*UpstreamError)
+	if !ok {
+		t.Fatalf("error type = %T, want *UpstreamError", err)
+	}
+	if upstreamErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", upstreamErr.StatusCode)
+	}
+	if !strings.Contains(upstreamErr.Error(), "人机验证") {
+		t.Fatalf("unexpected error message: %q", upstreamErr.Error())
+	}
+}
+
 func anyString(value any) string {
 	text, _ := value.(string)
 	return text
