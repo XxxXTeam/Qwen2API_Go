@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.6.0...v0.7.0) (2026-05-19)
+
+
+### Features
+
+* **admin:** 添加模型列表手动刷新功能 ([2087bc8](https://github.com/XxxXTeam/Qwen2API_Go/commit/2087bc82516e53d2f7f4637e523ff9b9aeef407f))
+* 添加提示词管理和自定义功能 ([de3cb00](https://github.com/XxxXTeam/Qwen2API_Go/commit/de3cb00e093a6cc88f6d9c43e37ca7f8a289691b))
+
 ## [0.6.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.5.0...v0.6.0) (2026-05-10)
 
 
