@@ -36,29 +36,6 @@ QWEN_CHAT_PROXY_URL=https://chat.qwen.ai
 QWEN_WEB2_CONTROL_PROMPT=
 PROMPT_OVERRIDES_JSON={}
 
-# Lingma built-in provider
-LINGMA_MODEL=kmodel
-LINGMA_REMOTE_BASE_URL=
-LINGMA_REMOTE_AUTH_FILE=data/data.json
-LINGMA_REMOTE_VERSION=
-LINGMA_REMOTE_SERVICE=agent_chat_generation
-LINGMA_REMOTE_FETCH_KEYS=llm_model_result
-LINGMA_REMOTE_CHAT_TASK=question_refine
-# Optional Lingma login callback tokens. These come from the reversed Lingma
-# login callback auth/token params, not from Qwen Web JWT.
-LINGMA_LOGIN_USER_ID=
-LINGMA_LOGIN_ORG_ID=
-LINGMA_LOGIN_SOURCE=
-LINGMA_SECURITY_OAUTH_TOKEN=
-LINGMA_REFRESH_TOKEN=
-LINGMA_LOGIN_EXPIRE_TIME=
-LINGMA_PERSONAL_TOKEN=
-LINGMA_AK=
-LINGMA_SK=
-LINGMA_TIMEOUT_SECONDS=0
-LINGMA_REMOTE_FALLBACK_ENABLED=true
-LINGMA_REMOTE_FALLBACK_MODELS=kmodel,mmodel,dashscope_qwen3_coder,dashscope_qmodel,dashscope_qwen_max_latest,dashscope_qwen_plus_20250428_thinking
-
 # Optional outbound proxy
 # PROXY_URL=http://127.0.0.1:7890
 PROXY_URL=

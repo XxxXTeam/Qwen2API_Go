@@ -137,9 +137,6 @@ func (s *Service) ensureAccountReady(ctx context.Context, account storage.Accoun
 		return account, true
 	}
 	if strings.TrimSpace(account.Email) == "" || strings.TrimSpace(account.Password) == "" {
-		if account.HasLingmaLogin() && strings.TrimSpace(account.Email) != "" {
-			return account, true
-		}
 		return storage.Account{}, false
 	}
 	token, err := s.tokenMgr.Login(ctx, account.Email, account.Password)
@@ -272,9 +269,6 @@ func (s *Service) AddAccount(ctx context.Context, email, password string) error 
 	s.mu.RLock()
 	for _, account := range s.accounts {
 		if strings.EqualFold(account.Email, email) {
-			if account.HasLingmaLogin() && strings.TrimSpace(account.Password) == "" && strings.TrimSpace(account.Token) == "" {
-				continue
-			}
 			s.mu.RUnlock()
 			return errors.New("账号已存在")
 		}
@@ -303,20 +297,9 @@ func (s *Service) AddAccountWithToken(email, password, token string, expires int
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous := append([]storage.Account(nil), s.accounts...)
-	for i, existing := range s.accounts {
+	for _, existing := range s.accounts {
 		if !strings.EqualFold(existing.Email, email) {
 			continue
-		}
-		if existing.HasLingmaLogin() && strings.TrimSpace(existing.Password) == "" && strings.TrimSpace(existing.Token) == "" {
-			existing.Password = password
-			existing.Token = token
-			existing.Expires = expires
-			s.accounts[i] = existing
-			if err := s.store.SaveAccount(existing); err != nil && !isReadonlyStoreError(err) {
-				s.accounts = previous
-				return err
-			}
-			return nil
 		}
 		return errors.New("账号已存在")
 	}

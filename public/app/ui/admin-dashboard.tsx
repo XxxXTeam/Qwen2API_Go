@@ -233,7 +233,6 @@ export function AdminDashboard({ initialTab }: { initialTab?: TabKey } = {}) {
             <SettingsTab
               settings={state.settings}
               savingSettings={state.savingSettings}
-              openingLingmaLogin={state.openingLingmaLogin}
               addKeyValue={state.addKeyValue}
               thresholdHours={state.thresholdHours}
               setAddKeyValue={actions.setAddKeyValue}
@@ -242,7 +241,6 @@ export function AdminDashboard({ initialTab }: { initialTab?: TabKey } = {}) {
               addRegularKey={actions.addRegularKey}
               deleteRegularKey={actions.deleteRegularKey}
               refreshAllAccounts={actions.refreshAllAccounts}
-              openLingmaLogin={actions.openLingmaLogin}
               reloadRuntimeConfig={actions.reloadRuntimeConfig}
               saveSettings={actions.saveSettings}
               saveChatCleanupMode={actions.saveChatCleanupMode}

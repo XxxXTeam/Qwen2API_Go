@@ -7,7 +7,6 @@
 
 * boom 重构前端 ([34a3011](https://github.com/XxxXTeam/Qwen2API_Go/commit/34a30112342514e75b9c98083bdb8b44b719d974))
 * del chat ([0cc14f6](https://github.com/XxxXTeam/Qwen2API_Go/commit/0cc14f6d416d7f1b8e1325d265b50c7370844b14))
-* lingma ([505fff6](https://github.com/XxxXTeam/Qwen2API_Go/commit/505fff607cc8d14bce6366d1017633836c997dde))
 * **openai:** 支持 Anthropic API 的新字段和功能 ([da36476](https://github.com/XxxXTeam/Qwen2API_Go/commit/da36476993558b107502c2586c80cdc3b1f577d3))
 * **qwen:** 添加阿里云人机验证错误处理机制 ([69210c3](https://github.com/XxxXTeam/Qwen2API_Go/commit/69210c3865deea7d7e6e62cef70288e39880ef05))
 * reasoning_effort 兼容 ([231cb26](https://github.com/XxxXTeam/Qwen2API_Go/commit/231cb26d43f22ac60289c8bd11a20d9117f99a41))

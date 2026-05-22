@@ -9,16 +9,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"qwen2api/internal/admin"
 	"qwen2api/internal/auth"
 	"qwen2api/internal/config"
-	lingmaremote "qwen2api/internal/lingma/remote"
 	"qwen2api/internal/logging"
 	"qwen2api/internal/metrics"
 	"qwen2api/internal/openai"
@@ -125,38 +122,6 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 	handle("/api/refreshAllAccounts", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleRefreshAllAccounts)))
 	handle("/api/forceRefreshAllAccounts", "admin", ensureMethod(http.MethodPost, withAdminKey(adminHandler.HandleForceRefreshAllAccounts)))
 	handle("/api/batchTasks/", "admin", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleBatchTask)))
-	handle("/api/lingma/login-url", "admin", ensureMethod(http.MethodGet, withAdminKey(func(w http.ResponseWriter, r *http.Request) {
-		login := lingmaremote.GenerateLoginURL(cfg.ListenPort, "", "2", r.URL.Query().Get("redirectProxy"))
-		opened := false
-		if truthy(r.URL.Query().Get("open")) {
-			if err := openBrowser(login.URL); err != nil {
-				logger.WarnModule("LINGMA", "open Lingma login browser failed err=%v", err)
-				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error(), "url": login.URL})
-				return
-			}
-			opened = true
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"url":      login.URL,
-			"state":    login.State,
-			"authFile": cfg.LingmaRemoteAuthFile,
-			"opened":   opened,
-		})
-	})))
-	handle("/api/lingma/login", "admin", ensureMethod(http.MethodGet, withAdminKey(func(w http.ResponseWriter, r *http.Request) {
-		login := lingmaremote.GenerateLoginURL(cfg.ListenPort, "", "2", r.URL.Query().Get("redirectProxy"))
-		if err := openBrowser(login.URL); err != nil {
-			logger.WarnModule("LINGMA", "open Lingma login browser failed err=%v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error(), "url": login.URL})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"url":      login.URL,
-			"state":    login.State,
-			"authFile": cfg.LingmaRemoteAuthFile,
-			"opened":   true,
-		})
-	})))
 
 	publicDir := filepath.Join("public", "out")
 	staticFS := http.FileServer(http.Dir(publicDir))
@@ -174,74 +139,10 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 		serveIndex(w, r, publicDir)
 	})
 
-	root := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if maybeHandleLingmaLoginCallback(w, r, cfg, logger) {
-			return
-		}
-		mux.ServeHTTP(w, r)
-	})
-
 	return &http.Server{
 		Addr:    cfg.ListenAddressOrDefault() + ":" + strconv(cfg.ListenPort),
-		Handler: cors(root),
+		Handler: cors(mux),
 	}
-}
-
-func maybeHandleLingmaLoginCallback(w http.ResponseWriter, r *http.Request, cfg config.Config, logger *logging.Logger) bool {
-	if r.Method != http.MethodGet {
-		return false
-	}
-	query := r.URL.Query()
-	if query.Get("auth") == "" && query.Get("token") == "" {
-		return false
-	}
-	callback, err := lingmaremote.ParseLoginCallback(r.URL.String())
-	if err != nil {
-		logger.WarnModule("LINGMA", "parse Lingma login callback failed err=%v", err)
-		writeLingmaCallbackParseError(w, r, cfg, err)
-		return true
-	}
-	if err := lingmaremote.SaveLoginCallback(cfg.LingmaRemoteAuthFile, callback); err != nil {
-		logger.WarnModule("LINGMA", "save Lingma login callback failed file=%s err=%v", cfg.LingmaRemoteAuthFile, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return true
-	}
-	logger.InfoModule("LINGMA", "Lingma login callback saved user=%s org=%s file=%s", callback.AuthParts.UserID, callback.AuthParts.OrgOrAccount, cfg.LingmaRemoteAuthFile)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("<!doctype html><title>Lingma Login</title><p>Lingma login saved. You can close this page.</p>"))
-	return true
-}
-
-func writeLingmaCallbackParseError(w http.ResponseWriter, r *http.Request, cfg config.Config, parseErr error) {
-	login := lingmaremote.GenerateLoginURL(cfg.ListenPort, "", "2", r.URL.Query().Get("redirectProxy"))
-	message := parseErr.Error()
-	if strings.Contains(r.Header.Get("Accept"), "text/html") {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = fmt.Fprintf(
-			w,
-			"<!doctype html><title>Lingma Login</title><p>%s</p><p><a href=%q>重新打开 Lingma v2 登录</a></p>",
-			htmlEscape(message),
-			login.URL,
-		)
-		return
-	}
-	writeJSON(w, http.StatusBadRequest, map[string]any{
-		"error":    message,
-		"retryURL": login.URL,
-	})
-}
-
-func htmlEscape(value string) string {
-	replacer := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&#34;",
-		"'", "&#39;",
-	)
-	return replacer.Replace(value)
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request, publicDir string) {
@@ -262,32 +163,6 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func truthy(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "yes", "y", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func openBrowser(target string) error {
-	target = strings.TrimSpace(target)
-	if target == "" {
-		return fmt.Errorf("empty browser target")
-	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
-	case "darwin":
-		cmd = exec.Command("open", target)
-	default:
-		cmd = exec.Command("xdg-open", target)
-	}
-	return cmd.Start()
 }
 
 type statusRecorder struct {

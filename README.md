@@ -1,6 +1,6 @@
 # Qwen2API_Go
 
-把 Qwen Chat / Lingma 包装成 OpenAI / Anthropic 兼容接口，带管理后台、账号池、文件上传、图片/视频生成。
+把 Qwen Chat 包装成 OpenAI / Anthropic 兼容接口，带管理后台、账号池、文件上传、图片/视频生成。
 
 ## 使用前提醒
 
@@ -51,6 +51,9 @@ SERVICE_PORT=3000
 ```env
 ACCOUNTS=user1@example.com:password1,user2@example.com:password2
 ```
+
+> [!TIP]
+> 完整配置项、默认值、热更新范围和生产示例见 [配置文件说明](CONFIGURATION.md)。
 
 ### 直接运行容器
 
@@ -215,20 +218,21 @@ curl http://127.0.0.1:3000/v1/uploads \
 
 ## 常用配置
 
-- `API_KEY`
-  多个 key 用逗号分隔，第一个默认是管理员 key
-- `DATA_SAVE_MODE`
-  可选 `none`、`file`、`redis`
-- `ACCOUNTS`
-  预置账号，格式 `email:password,email:password`
-- `SERVICE_PORT`
-  服务端口，默认 `3000`
-- `QWEN_CHAT_PROXY_URL`
-  上游地址，默认 `https://chat.qwen.ai`
-- `PROXY_URL`
-  可选代理地址
-- `REDIS_URL`
-  Redis 地址，仅 `DATA_SAVE_MODE=redis` 时需要
+常用 `.env` 配置包括鉴权、账号存储、Qwen 上游、日志、运行时行为和 Prompt 覆盖。详细说明见：
+
+> [!IMPORTANT]
+> [配置文件说明](CONFIGURATION.md) 包含每个配置项的作用、默认值、注意事项和完整 `.env` 示例。
+
+快速索引：
+
+- `API_KEY`：多个 key 用逗号分隔，第一个默认是管理员 key。
+- `DATA_SAVE_MODE`：可选 `guest`、`none`、`file`、`redis`。
+- `ACCOUNTS`：预置账号，格式 `email:password,email:password`。
+- `SERVICE_PORT` / `LISTEN_ADDRESS`：服务监听端口和地址。
+- `QWEN_CHAT_PROXY_URL` / `PROXY_URL`：上游地址和出站代理。
+- `REDIS_URL`：Redis 地址，仅 `DATA_SAVE_MODE=redis` 时需要。
+- `OUTPUT_THINK`：是否输出 reasoning 内容。
+- `PROMPT_OVERRIDES_JSON`：覆盖内置 Prompt 模板。
 
 ## 运行建议
 

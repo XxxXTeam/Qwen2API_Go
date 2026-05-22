@@ -18,45 +18,17 @@ import (
 )
 
 type Account struct {
-	Email    string       `json:"email"`
-	Password string       `json:"password"`
-	Token    string       `json:"token"`
-	Source   string       `json:"source,omitempty"`
-	Expires  int64        `json:"expires"`
-	Lingma   *LingmaLogin `json:"lingma,omitempty"`
-}
-
-type LingmaLogin struct {
-	Source             string            `json:"source,omitempty"`
-	UserID             string            `json:"user_id,omitempty"`
-	OrgID              string            `json:"org_id,omitempty"`
-	Token              string            `json:"token,omitempty"`
-	SecurityOAuthToken string            `json:"security_oauth_token,omitempty"`
-	RefreshToken       string            `json:"refresh_token,omitempty"`
-	ExpireTime         string            `json:"expire_time,omitempty"`
-	PersonalToken      string            `json:"personal_token,omitempty"`
-	AK                 string            `json:"ak,omitempty"`
-	SK                 string            `json:"sk,omitempty"`
-	Params             map[string]string `json:"params,omitempty"`
-	SavedAt            int64             `json:"saved_at,omitempty"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Token    string `json:"token"`
+	Source   string `json:"source,omitempty"`
+	Expires  int64  `json:"expires"`
 }
 
 const AccountSourceGuest = "guest"
 
 func (a Account) IsGuest() bool {
 	return strings.EqualFold(strings.TrimSpace(a.Source), AccountSourceGuest)
-}
-
-func (a Account) HasLingmaLogin() bool {
-	if a.Lingma == nil {
-		return false
-	}
-	return strings.TrimSpace(a.Lingma.SecurityOAuthToken) != "" ||
-		strings.TrimSpace(a.Lingma.Token) != "" ||
-		strings.TrimSpace(a.Lingma.RefreshToken) != "" ||
-		strings.TrimSpace(a.Lingma.PersonalToken) != "" ||
-		strings.TrimSpace(a.Lingma.AK) != "" ||
-		strings.TrimSpace(a.Lingma.SK) != ""
 }
 
 type FileData struct {
@@ -302,9 +274,6 @@ func (s *redisStore) LoadAccounts() ([]Account, error) {
 			Password: values["password"],
 			Token:    values["token"],
 		}
-		if lingma := redisLingmaLogin(values); lingma != nil {
-			account.Lingma = lingma
-		}
 		if values["expires"] != "" {
 			if parsed, parseErr := time.Parse(time.RFC3339Nano, values["expires"]); parseErr == nil {
 				account.Expires = parsed.Unix()
@@ -329,7 +298,6 @@ func (s *redisStore) SaveAccount(account Account) error {
 		"token":        account.Token,
 		"expires_unix": account.Expires,
 	}
-	addRedisLingmaLogin(values, account.Lingma)
 	if account.Expires > 0 {
 		values["expires"] = time.Unix(account.Expires, 0).UTC().Format(time.RFC3339Nano)
 	} else {
@@ -363,7 +331,6 @@ func (s *redisStore) SaveAllAccounts(accounts []Account) error {
 			"token":        account.Token,
 			"expires_unix": account.Expires,
 		}
-		addRedisLingmaLogin(values, account.Lingma)
 		if account.Expires > 0 {
 			values["expires"] = time.Unix(account.Expires, 0).UTC().Format(time.RFC3339Nano)
 		} else {
@@ -373,50 +340,6 @@ func (s *redisStore) SaveAllAccounts(accounts []Account) error {
 	}
 	_, err = pipe.Exec(ctx)
 	return err
-}
-
-func redisLingmaLogin(values map[string]string) *LingmaLogin {
-	login := &LingmaLogin{
-		Source:             values["lingma_source"],
-		UserID:             values["lingma_user_id"],
-		OrgID:              values["lingma_org_id"],
-		Token:              values["lingma_token"],
-		SecurityOAuthToken: values["lingma_security_oauth_token"],
-		RefreshToken:       values["lingma_refresh_token"],
-		ExpireTime:         values["lingma_expire_time"],
-		PersonalToken:      values["lingma_personal_token"],
-		AK:                 values["lingma_ak"],
-		SK:                 values["lingma_sk"],
-	}
-	if values["lingma_saved_at"] != "" {
-		login.SavedAt, _ = strconv.ParseInt(values["lingma_saved_at"], 10, 64)
-	}
-	if strings.TrimSpace(login.SecurityOAuthToken) == "" &&
-		strings.TrimSpace(login.Token) == "" &&
-		strings.TrimSpace(login.RefreshToken) == "" &&
-		strings.TrimSpace(login.PersonalToken) == "" &&
-		strings.TrimSpace(login.AK) == "" &&
-		strings.TrimSpace(login.SK) == "" {
-		return nil
-	}
-	return login
-}
-
-func addRedisLingmaLogin(values map[string]any, login *LingmaLogin) {
-	if login == nil {
-		return
-	}
-	values["lingma_source"] = login.Source
-	values["lingma_user_id"] = login.UserID
-	values["lingma_org_id"] = login.OrgID
-	values["lingma_token"] = login.Token
-	values["lingma_security_oauth_token"] = login.SecurityOAuthToken
-	values["lingma_refresh_token"] = login.RefreshToken
-	values["lingma_expire_time"] = login.ExpireTime
-	values["lingma_personal_token"] = login.PersonalToken
-	values["lingma_ak"] = login.AK
-	values["lingma_sk"] = login.SK
-	values["lingma_saved_at"] = login.SavedAt
 }
 
 func (s *redisStore) scanUserKeys(ctx context.Context) ([]string, error) {

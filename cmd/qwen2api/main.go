@@ -14,8 +14,6 @@ import (
 	"qwen2api/internal/auth"
 	"qwen2api/internal/cleanup"
 	"qwen2api/internal/config"
-	lingmaremote "qwen2api/internal/lingma/remote"
-	lingmaservice "qwen2api/internal/lingma/service"
 	"qwen2api/internal/logging"
 	"qwen2api/internal/metrics"
 	"qwen2api/internal/openai"
@@ -53,7 +51,6 @@ func main() {
 	stats := metrics.NewDashboardStats()
 	qwenClient := qwen.NewClient(cfg, logger)
 	accountService := account.NewService(cfg, runtime, store, qwenClient, logger)
-	lingmaService := newLingmaService(cfg)
 	conversationSessions := openai.NewConversationSessionService(conversationStore, logger)
 	chatTracker, err := storage.NewChatTracker(cfg.RedisURL)
 	if err != nil {
@@ -68,14 +65,9 @@ func main() {
 	defer stop()
 
 	defer accountService.Close()
-	defer func() {
-		if err := lingmaService.Close(); err != nil {
-			logger.WarnModule("LINGMA", "Lingma service close failed: %v", err)
-		}
-	}()
 	defer cleanupService.Stop()
 
-	openAIHandler := openai.NewHandler(cfg, runtime, qwenClient, lingmaService, accountService, conversationSessions, chatTracker, stats, logger)
+	openAIHandler := openai.NewHandler(cfg, runtime, qwenClient, accountService, conversationSessions, chatTracker, stats, logger)
 	adminHandler := admin.NewHandler(cfg, runtime, keyring, accountService, openAIHandler, stats, logger)
 	httpServer := server.New(cfg, keyring, openAIHandler, adminHandler, stats, logger)
 	serverErrCh := make(chan error, 1)
@@ -105,27 +97,4 @@ func main() {
 			os.Exit(1)
 		}
 	}
-}
-
-func newLingmaService(cfg config.Config) *lingmaservice.Service {
-	credentialProvider := lingmaremote.NewLoginCredentialProvider(lingmaremote.Config{
-		BaseURL:     cfg.LingmaRemoteBaseURL,
-		AuthFile:    cfg.LingmaRemoteAuthFile,
-		CosyVersion: cfg.LingmaRemoteVersion,
-		Timeout:     time.Duration(cfg.LingmaTimeoutSeconds) * time.Second,
-	})
-
-	return lingmaservice.New(lingmaservice.Config{
-		RemoteBaseURL:         cfg.LingmaRemoteBaseURL,
-		RemoteAuthFile:        cfg.LingmaRemoteAuthFile,
-		RemoteVersion:         cfg.LingmaRemoteVersion,
-		RemoteService:         cfg.LingmaRemoteService,
-		RemoteFetchKeys:       cfg.LingmaRemoteFetchKeys,
-		RemoteChatTask:        cfg.LingmaRemoteChatTask,
-		CredentialProvider:    credentialProvider,
-		Model:                 cfg.LingmaModel,
-		Timeout:               time.Duration(cfg.LingmaTimeoutSeconds) * time.Second,
-		RemoteFallbackEnabled: cfg.LingmaFallback,
-		RemoteFallbackModels:  cfg.LingmaFallbackModels,
-	})
 }

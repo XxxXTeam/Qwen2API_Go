@@ -7,7 +7,6 @@ import type {
   AccountsResponse,
   BatchTaskResponse,
   Filters,
-  LingmaLoginURLResponse,
   ModelItem,
   ModelsResponse,
   OverviewResponse,
@@ -75,7 +74,6 @@ export function useAdminConsole(initialTab?: TabKey) {
   const [addKeyValue, setAddKeyValue] = useState("");
   const [thresholdHours, setThresholdHours] = useState("24");
   const [savingSettings, setSavingSettings] = useState(false);
-  const [openingLingmaLogin, setOpeningLingmaLogin] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab || "overview");
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
@@ -324,7 +322,6 @@ export function useAdminConsole(initialTab?: TabKey) {
       addKeyValue,
       thresholdHours,
       savingSettings,
-      openingLingmaLogin,
       refreshingModels,
       activeTab,
       themeMode,
@@ -411,33 +408,6 @@ export function useAdminConsole(initialTab?: TabKey) {
         await submitAction("/api/reload-runtime-config", {});
         setToast({ type: "success", message: "已重新加载 .env，运行配置已热更新。" });
         await loadShell();
-      },
-      openLingmaLogin: async () => {
-        if (!apiKey) {
-          return;
-        }
-        const popup = typeof window !== "undefined" ? window.open("", "_blank") : null;
-        try {
-          setOpeningLingmaLogin(true);
-          const response = await apiRequest<LingmaLoginURLResponse>("/api/lingma/login-url", {}, apiKey);
-          if (!response.url) {
-            throw new Error("Lingma login URL is empty");
-          }
-          if (popup) {
-            popup.location.href = response.url;
-            popup.focus();
-          } else if (typeof window !== "undefined") {
-            window.location.href = response.url;
-          }
-          setToast({ type: "info", message: `Lingma 登录页已打开，完成后将写入 ${response.authFile || "data/data.json"}。` });
-        } catch (error) {
-          if (popup) {
-            popup.close();
-          }
-          setToast({ type: "error", message: error instanceof Error ? error.message : "打开 Lingma 登录失败" });
-        } finally {
-          setOpeningLingmaLogin(false);
-        }
       },
       refreshModels: async () => {
         try {
