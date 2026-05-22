@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.6.0...v1.0.0) (2026-05-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* 移除了 IPC 传输方式，现在只支持远程服务模式。 移除了 LINGMA_BACKEND, LINGMA_TRANSPORT, LINGMA_PIPE, LINGMA_WEBSOCKET_URL, LINGMA_SESSION_MODE 环境变量。
+
+### Features
+
+* **admin:** 添加模型列表手动刷新功能 ([2087bc8](https://github.com/XxxXTeam/Qwen2API_Go/commit/2087bc82516e53d2f7f4637e523ff9b9aeef407f))
+* **toolemulation:** 支持解析嵌套JSON参数字符串 ([52c4e13](https://github.com/XxxXTeam/Qwen2API_Go/commit/52c4e133e2284676a8ea761664aafe8212703444))
+* 优化前端 ([6b6e902](https://github.com/XxxXTeam/Qwen2API_Go/commit/6b6e902fa02d93646e44b8e1868eb5ede9d9e50b))
+* 支持 Lingma 远程服务并优化配置 ([c6b3157](https://github.com/XxxXTeam/Qwen2API_Go/commit/c6b31578d0c52e4d76487ea2811b83d0628b0d9d))
+* 添加提示词管理和自定义功能 ([de3cb00](https://github.com/XxxXTeam/Qwen2API_Go/commit/de3cb00e093a6cc88f6d9c43e37ca7f8a289691b))
+
+
+### Bug Fixes
+
+* emit thinking content as reasoning_content field ([a17629a](https://github.com/XxxXTeam/Qwen2API_Go/commit/a17629ab4ae9e7ec18ade5e668af891cd4080897))
+
 ## [0.6.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.5.0...v0.6.0) (2026-05-10)
 
 
