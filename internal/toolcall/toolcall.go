@@ -39,6 +39,7 @@ type InjectionResult struct {
 var (
 	xmlToolCallsBlock          = regexp.MustCompile(`(?is)<(?:ml_tool_calls|tool_calls)[^>]*>(.*?)</(?:ml_tool_calls|tool_calls)>`)
 	xmlToolCallBlock           = regexp.MustCompile(`(?is)<(?:ml_tool_call|tool_call)[^>]*>(.*?)</(?:ml_tool_call|tool_call)>`)
+	xmlToolResultBlock         = regexp.MustCompile(`(?is)<(?:ml_tool_result|tool_result)[^>]*>(.*?)</(?:ml_tool_result|tool_result)>`)
 	xmlToolNameBlock           = regexp.MustCompile(`(?is)<(?:ml_tool_name|tool_name)>(.*?)</(?:ml_tool_name|tool_name)>`)
 	xmlParameters              = regexp.MustCompile(`(?is)<(?:ml_parameters|parameters)>(.*?)</(?:ml_parameters|parameters)>`)
 	xmlParameterItem           = regexp.MustCompile(`(?is)<([a-zA-Z_][\w.:-]*)>(.*?)</([a-zA-Z_][\w.:-]*)>`)
@@ -47,19 +48,23 @@ var (
 	xmlResidualTag             = regexp.MustCompile(`(?is)</?(?:ml_tool_calls|ml_tool_call|ml_tool_result|ml_tool_name|ml_tool_call_id|ml_parameters|tool_calls|tool_call|tool_result|tool_name|parameters|function_call|invoke|tool_use)\b[^>]*>`)
 	malformedToolPreludePrefix = regexp.MustCompile(`(?is)^(?:\s*<(?:ml_tool_calls|ml_tool_call|tool_calls|tool_call|function_call|invoke|tool_use|antml:function_call)\s*>\s*)+`)
 	leadingToolTagLines        = regexp.MustCompile(`(?is)^(?:\s*</?(?:ml_tool_calls|ml_tool_call|ml_tool_result|ml_tool_name|ml_tool_call_id|ml_parameters|tool_calls|tool_call|tool_result|tool_name|parameters|function_call|invoke|tool_use)\b[^>]*>\s*)+`)
-	startMarkers               = []string{"<ml_tool_calls", "<ml_tool_call", "<tool_calls", "<tool_call"}
+	serializedRolePrefix       = regexp.MustCompile(`(?i)^[ \t;]*(?:system|user|assistant|tool):\s*`)
+	startMarkers               = []string{"<ml_tool_calls", "<ml_tool_call", "<ml_tool_result", "<tool_calls", "<tool_call", "<tool_result", "<function_call", "<invoke", "<tool_use", "<antml:function_call"}
 	toolTagPairs               = []struct {
 		open  string
 		close string
+		drop  bool
 	}{
 		{open: "<ml_tool_calls", close: "</ml_tool_calls>"},
 		{open: "<ml_tool_call", close: "</ml_tool_call>"},
+		{open: "<ml_tool_result", close: "</ml_tool_result>", drop: true},
 		{open: "<tool_calls", close: "</tool_calls>"},
 		{open: "<tool_call", close: "</tool_call>"},
-		{open: "<function_call", close: "</function_call>"},
-		{open: "<invoke", close: "</invoke>"},
-		{open: "<tool_use", close: "</tool_use>"},
-		{open: "<antml:function_call", close: "</antml:function_call>"},
+		{open: "<tool_result", close: "</tool_result>", drop: true},
+		{open: "<function_call", close: "</function_call>", drop: true},
+		{open: "<invoke", close: "</invoke>", drop: true},
+		{open: "<tool_use", close: "</tool_use>", drop: true},
+		{open: "<antml:function_call", close: "</antml:function_call>", drop: true},
 	}
 )
 
@@ -258,6 +263,13 @@ func ParseCalls(text string) []ToolCall {
 			call := parseToolCallBlock(block[1])
 			if call.Name != "" {
 				calls = append(calls, call)
+			}
+		}
+	}
+	if len(calls) == 0 {
+		for _, block := range xmlToolResultBlock.FindAllStringSubmatch(text, -1) {
+			if strings.TrimSpace(block[1]) != "" {
+				return nil
 			}
 		}
 	}
@@ -723,6 +735,9 @@ func tryConsumeCapture(captured string) (bool, string, []ToolCall) {
 		if len(calls) > 0 {
 			return true, stripToolPromptLeakage(RemoveMarkup(prefix + xmlBlock + suffix)), calls
 		}
+		if pair.drop {
+			return true, stripToolPromptLeakage(RemoveMarkup(prefix + xmlBlock + suffix)), nil
+		}
 		return true, stripToolPromptLeakage(stripMalformedToolPreludePrefix(prefix + xmlBlock + suffix)), nil
 	}
 
@@ -820,6 +835,7 @@ func stripToolPromptLeakagePreserveWhitespace(text string) string {
 	for _, pattern := range patterns {
 		cleaned = pattern.ReplaceAllString(cleaned, "")
 	}
+	cleaned = serializedRolePrefix.ReplaceAllString(cleaned, "")
 	return cleaned
 }
 

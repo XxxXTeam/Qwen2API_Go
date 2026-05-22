@@ -19,7 +19,8 @@ const (
 
 var (
 	toolPreludePatterns = []string{
-		"<ml_tool_calls", "<ml_tool_call", "<tool_calls", "<tool_call",
+		"<ml_tool_calls", "<ml_tool_call", "<ml_tool_result",
+		"<tool_calls", "<tool_call", "<tool_result",
 		"<function_call", "<invoke", "<tool_use", "<antml:function_call",
 	}
 )

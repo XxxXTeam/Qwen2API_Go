@@ -119,6 +119,41 @@ func TestProcessStreamChunkDoesNotLeakSplitClosingWrapperAfterValidToolCall(t *t
 	}
 }
 
+func TestProcessStreamChunkDoesNotLeakSplitToolResultEcho(t *testing.T) {
+	state := NewStreamState()
+
+	chunks := []string{
+		";user:<ml_tool_result>\n  <ml_tool_name>terminal</ml_tool_name>\n",
+		"  <ml_tool_call_id>call_123</ml_tool_call_id>\n",
+		"  <content><![CDATA[{\"output\":\"secret\"}]]></content>\n</ml_tool_result>\n",
+		"\nGood. Now continue.",
+	}
+
+	var combinedContent strings.Builder
+	for _, chunk := range chunks {
+		result := ProcessStreamChunk(state, chunk)
+		combinedContent.WriteString(CleanVisibleChunk(result.Content))
+		if len(result.ToolCalls) != 0 {
+			t.Fatalf("tool calls len = %d, want 0", len(result.ToolCalls))
+		}
+	}
+	final := FinalizeStream(state)
+	combinedContent.WriteString(CleanVisibleChunk(final.Content))
+
+	got := strings.TrimSpace(combinedContent.String())
+	if got != "Good. Now continue." {
+		t.Fatalf("content = %q, want visible answer only", got)
+	}
+}
+
+func TestCleanVisibleTextRemovesSerializedRolePrefixLeftByToolResult(t *testing.T) {
+	input := ";user:<ml_tool_result><content><![CDATA[secret]]></content></ml_tool_result>\n\nanswer"
+	got := CleanVisibleText(input)
+	if got != "answer" {
+		t.Fatalf("content = %q, want %q", got, "answer")
+	}
+}
+
 func TestProcessStreamChunkDoesNotFragmentPlainTextWhenToolsEnabled(t *testing.T) {
 	state := NewStreamState()
 
