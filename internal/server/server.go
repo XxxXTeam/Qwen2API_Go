@@ -124,6 +124,11 @@ func New(cfg config.Config, keyring *auth.Keyring, openAIHandler *openai.Handler
 	handle("/api/batchTasks/", "admin", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleBatchTask)))
 	handle("/api/dashboard/stream", "admin", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleDashboardStream)))
 
+	// Conversation sessions management
+	handle("/api/sessions", "admin", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleSessions)))
+	handle("/api/sessions/chat", "admin", ensureMethod(http.MethodGet, withAdminKey(adminHandler.HandleSessionChat)))
+	handle("/api/sessions", "admin", ensureMethod(http.MethodDelete, withAdminKey(adminHandler.HandleDeleteSession)))
+
 	publicDir := filepath.Join("public", "out")
 	staticFS := http.FileServer(http.Dir(publicDir))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

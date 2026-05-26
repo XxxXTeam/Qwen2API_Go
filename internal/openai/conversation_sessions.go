@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -116,4 +117,13 @@ func computeContextHash(model, chatType string, toolNames []string, expandedMess
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// ListAll returns all conversation sessions from the store
+func (s *ConversationSessionService) ListAll() ([]storage.ConversationSession, error) {
+	if s == nil || s.store == nil {
+		return nil, errors.New("会话服务未初始化")
+	}
+	s.cleanupExpired()
+	return s.store.ListConversationSessions()
 }

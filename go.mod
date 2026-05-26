@@ -1,6 +1,6 @@
 module qwen2api
 
-go 1.25.6
+go 1.19
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0

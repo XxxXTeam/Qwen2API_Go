@@ -29,11 +29,12 @@ type Handler struct {
 	openai   *openai.Handler
 	metrics  *metrics.DashboardStats
 	logger   *logging.Logger
+	sessions *openai.ConversationSessionService
 
 	batches *batchManager
 }
 
-func NewHandler(cfg config.Config, runtime *config.Runtime, keyring *auth.Keyring, accounts *account.Service, openaiHandler *openai.Handler, stats *metrics.DashboardStats, logger *logging.Logger) *Handler {
+func NewHandler(cfg config.Config, runtime *config.Runtime, keyring *auth.Keyring, accounts *account.Service, openaiHandler *openai.Handler, stats *metrics.DashboardStats, logger *logging.Logger, sessions *openai.ConversationSessionService) *Handler {
 	return &Handler{
 		cfg:      cfg,
 		runtime:  runtime,
@@ -42,6 +43,7 @@ func NewHandler(cfg config.Config, runtime *config.Runtime, keyring *auth.Keyrin
 		openai:   openaiHandler,
 		metrics:  stats,
 		logger:   logger,
+		sessions: sessions,
 		batches:  newBatchManager(),
 	}
 }
@@ -1032,7 +1034,7 @@ func (h *Handler) HandleDashboardStream(w http.ResponseWriter, r *http.Request) 
 						"admin":   boolToInt(keys.AdminKey != ""),
 						"regular": len(keys.RegularKeys),
 					},
-					"analytics": h.metrics.Snapshot(),
+					"analytics":   h.metrics.Snapshot(),
 					"generatedAt": time.Now().UTC().Format(time.RFC3339),
 				},
 			})
@@ -1040,4 +1042,113 @@ func (h *Handler) HandleDashboardStream(w http.ResponseWriter, r *http.Request) 
 			flusher.Flush()
 		}
 	}
+}
+
+// HandleSessions returns a list of all active conversation sessions
+func (h *Handler) HandleSessions(w http.ResponseWriter, r *http.Request) {
+	if h.sessions == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "会话服务未初始化"})
+		return
+	}
+
+	sessions, err := h.sessions.ListAll()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	// Enrich sessions with additional info
+	result := make([]map[string]any, 0, len(sessions))
+	for _, s := range sessions {
+		result = append(result, map[string]any{
+			"context_hash":  s.ContextHash,
+			"account_email": s.AccountEmail,
+			"chat_id":       s.ChatID,
+			"model":         s.Model,
+			"chat_type":     s.ChatType,
+			"updated_at":    s.UpdatedAt,
+			"updated_time":  time.UnixMilli(s.UpdatedAt).Format(time.RFC3339),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":    len(result),
+		"sessions": result,
+	})
+}
+
+// HandleSessionChat retrieves chat history for a specific session by chat_id
+func (h *Handler) HandleSessionChat(w http.ResponseWriter, r *http.Request) {
+	if h.sessions == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "会话服务未初始化"})
+		return
+	}
+
+	chatID := r.URL.Query().Get("chat_id")
+	if chatID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "缺少 chat_id 参数"})
+		return
+	}
+
+	// Find session by chat_id
+	sessions, err := h.sessions.ListAll()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	var found *storage.ConversationSession
+	for i := range sessions {
+		if sessions[i].ChatID == chatID {
+			found = &sessions[i]
+			break
+		}
+	}
+
+	if found == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "会话未找到"})
+		return
+	}
+
+	// Get cached messages from chat tracker if available
+	messages := []map[string]any{}
+	// Note: Full chat history retrieval would require calling Qwen API
+	// For now, we return session metadata and indicate that full history requires API call
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": map[string]any{
+			"context_hash":  found.ContextHash,
+			"account_email": found.AccountEmail,
+			"chat_id":       found.ChatID,
+			"model":         found.Model,
+			"chat_type":     found.ChatType,
+			"updated_at":    found.UpdatedAt,
+			"updated_time":  time.UnixMilli(found.UpdatedAt).Format(time.RFC3339),
+		},
+		"messages":          messages,
+		"note":              "完整聊天记录需要从 Qwen API 获取，当前仅返回会话元数据",
+		"web_interface_url": "https://chat.qwen.ai/c/" + found.ChatID,
+	})
+}
+
+// HandleDeleteSession deletes a conversation session
+func (h *Handler) HandleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if h.sessions == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "会话服务未初始化"})
+		return
+	}
+
+	var payload struct {
+		ContextHash string `json:"context_hash"`
+	}
+	if err := decodeJSON(r, &payload); err != nil || payload.ContextHash == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体格式错误或缺少 context_hash"})
+		return
+	}
+
+	h.sessions.Delete(payload.ContextHash)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  true,
+		"message": "会话已删除",
+	})
 }
