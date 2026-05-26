@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -151,7 +150,14 @@ func (c *Client) fetchAnonymousCookieHeader(ctx context.Context) (string, error)
 		}
 	}
 	if len(bootstrapErrs) > 0 && c.logger != nil {
-		c.logger.WarnModule("UPSTREAM", "guest cookie bootstrap degraded, using synthetic defaults where needed err=%v", errors.Join(bootstrapErrs...))
+		var joinedErr string
+		for i, err := range bootstrapErrs {
+			if i > 0 {
+				joinedErr += "; "
+			}
+			joinedErr += err.Error()
+		}
+		c.logger.WarnModule("UPSTREAM", "guest cookie bootstrap degraded, using synthetic defaults where needed err=%v", joinedErr)
 	}
 	return formatCookieMap(cookies), nil
 }
