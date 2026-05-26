@@ -1,5 +1,6 @@
 ```
-# Compiled and build artifacts
+# Compiled and binary files
+*.exe
 *.o
 *.obj
 *.out
@@ -15,8 +16,4 @@ vendor/
 .env
 .env.local
 *.env.*
-
-# Editors
-.vscode/
-.idea/
 ```
