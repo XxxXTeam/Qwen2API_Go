@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	qwenWebVersion = "0.2.67"
+	qwenWebVersion = "0.2.68"
 	qwenBxVersion  = "2.5.36"
 )
 
@@ -235,6 +235,7 @@ func (c *Client) doOnce(req *http.Request) (*http.Response, error) {
 		c.logger.WarnModule("UPSTREAM", "upstream request failed method=%s url=%s duration=%s err=%v", req.Method, req.URL.String(), time.Since(start), err)
 		return nil, err
 	}
+	c.rememberAnonymousResponse(req, resp)
 	if err := decodeCompressedBody(resp); err != nil {
 		resp.Body.Close()
 		c.logger.WarnModule("UPSTREAM", "upstream decode failed method=%s url=%s duration=%s err=%v", req.Method, req.URL.String(), time.Since(start), err)
@@ -515,8 +516,10 @@ func (c *Client) NewChat(ctx context.Context, token, model, chatType string) (st
 	if strings.TrimSpace(normalizeBearerToken(token)) == "" {
 		chatMode = "guest"
 		body["chat_mode"] = chatMode
+		c.warmGuestNewChat(ctx)
 		requestOptions.Headers = http.Header{
 			"X-Request-Id": []string{newRequestID()},
+			"Priority":     []string{"u=0"},
 		}
 	}
 	body["chat_mode"] = chatMode
@@ -553,6 +556,9 @@ func (c *Client) NewChat(ctx context.Context, token, model, chatType string) (st
 	if chatID == "" {
 		return "", fmt.Errorf("生成 chat_id 失败: %s", previewValue(payload))
 	}
+	if strings.TrimSpace(normalizeBearerToken(token)) == "" {
+		c.warmGuestAfterNewChat(ctx)
+	}
 	return chatID, nil
 }
 
@@ -569,6 +575,7 @@ func (c *Client) ChatCompletions(ctx context.Context, token, chatID string, body
 	if strings.TrimSpace(normalizeBearerToken(token)) == "" {
 		requestOptions.Referer = c.baseURL + "/c/guest"
 		requestOptions.Headers.Set("X-Request-Id", newRequestID())
+		requestOptions.Headers.Set("Priority", "u=4")
 	}
 	req, err := c.newRequestWithOptions(ctx, http.MethodPost, "/api/v2/chat/completions?chat_id="+url.QueryEscape(chatID), token, body, requestOptions)
 	if err != nil {

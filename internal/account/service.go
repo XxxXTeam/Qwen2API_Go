@@ -48,6 +48,8 @@ type HealthStats struct {
 
 const guestAccountEmail = "guest"
 
+const accountBrowserWarmupInterval = 2 * time.Second
+
 type Service struct {
 	cfg      config.Config
 	runtime  *config.Runtime
@@ -82,7 +84,7 @@ func NewService(cfg config.Config, runtime *config.Runtime, store storage.Accoun
 
 func (s *Service) Initialize(ctx context.Context) error {
 	s.logger.InfoModule("ACCOUNT", "account initialize started")
-	accounts, err := s.store.LoadAccounts()
+	loadedAccounts, err := s.store.LoadAccounts()
 	if err != nil {
 		s.logger.ErrorModule("ACCOUNT", "account initialize load failed: %v", err)
 		return err
@@ -93,15 +95,14 @@ func (s *Service) Initialize(ctx context.Context) error {
 		s.logger.WarnModule("ACCOUNT", "加载浏览器会话失败: %v", err)
 	}
 	if s.logger.IsDebug() {
-		s.logger.DebugModule("ACCOUNT", "account initialize loaded total=%d", len(accounts))
+		s.logger.DebugModule("ACCOUNT", "account initialize loaded total=%d", len(loadedAccounts))
 	}
 
-	validated := make([]storage.Account, 0, len(accounts))
-	for _, account := range accounts {
+	validated := make([]storage.Account, 0, len(loadedAccounts))
+	for _, account := range loadedAccounts {
 		normalized, ok := s.ensureAccountReady(ctx, account)
 		if ok {
 			validated = append(validated, normalized)
-			s.refreshBrowserSessionForAccount(ctx, normalized)
 		}
 	}
 	if len(validated) == 0 {
@@ -115,11 +116,12 @@ func (s *Service) Initialize(ctx context.Context) error {
 	s.initialized = true
 	s.mu.Unlock()
 
-	if err := s.store.SaveAllAccounts(filterPersistentAccounts(validated)); err != nil && !isReadonlyStoreError(err) {
+	if err := s.store.SaveAllAccounts(mergePersistentAccounts(loadedAccounts, validated)); err != nil && !isReadonlyStoreError(err) {
 		s.logger.WarnModule("ACCOUNT", "保存初始化后的账号状态失败: %v", err)
 	}
 
 	go s.runAutoRefresh()
+	go s.warmBrowserSessions(filterPersistentAccounts(validated))
 
 	s.logger.InfoModule("ACCOUNT", "account initialize completed available=%d", len(validated))
 	return nil
@@ -183,6 +185,41 @@ func filterPersistentAccounts(accounts []storage.Account) []storage.Account {
 	return filtered
 }
 
+func mergePersistentAccounts(loaded []storage.Account, validated []storage.Account) []storage.Account {
+	persisted := make([]storage.Account, 0, len(loaded)+len(validated))
+	indexByEmail := map[string]int{}
+
+	for _, account := range loaded {
+		if account.IsGuest() {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(account.Email))
+		if key == "" {
+			continue
+		}
+		indexByEmail[key] = len(persisted)
+		persisted = append(persisted, account)
+	}
+
+	for _, account := range validated {
+		if account.IsGuest() {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(account.Email))
+		if key == "" {
+			continue
+		}
+		if index, ok := indexByEmail[key]; ok {
+			persisted[index] = account
+			continue
+		}
+		indexByEmail[key] = len(persisted)
+		persisted = append(persisted, account)
+	}
+
+	return persisted
+}
+
 func decodeExpiry(token string) (int64, error) {
 	_, exp, ok := decodeJWTExpiry(token)
 	if !ok {
@@ -243,6 +280,28 @@ func (s *Service) runAutoRefresh() {
 			return
 		}
 	}
+}
+
+func (s *Service) warmBrowserSessions(accounts []storage.Account) {
+	if !s.client.BrowserAuthEnabled() || len(accounts) == 0 {
+		return
+	}
+
+	s.logger.InfoModule("ACCOUNT", "账号浏览器会话后台预热开始 total=%d", len(accounts))
+	for index, account := range accounts {
+		if index > 0 {
+			select {
+			case <-time.After(accountBrowserWarmupInterval):
+			case <-s.refreshStop:
+				return
+			}
+		}
+		s.refreshBrowserSessionForAccount(context.Background(), account)
+		if s.logger.IsDebug() {
+			s.logger.DebugModule("ACCOUNT", "账号浏览器会话后台预热进度 %d/%d email=%s", index+1, len(accounts), account.Email)
+		}
+	}
+	s.logger.InfoModule("ACCOUNT", "账号浏览器会话后台预热完成 total=%d", len(accounts))
 }
 
 func (s *Service) currentRuntime() config.RuntimeSnapshot {

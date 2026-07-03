@@ -218,6 +218,10 @@ func (c *Client) captureBrowserSession(ctx context.Context, cookieHeader string,
 
 	headerCh := make(chan http.Header, 1)
 	sourceURLCh := make(chan string, 1)
+	var captureMu sync.Mutex
+	var capturedHeaders http.Header
+	var capturedSourceURL string
+	var capturedPreferred bool
 	chromedp.ListenTarget(browserCtx, func(ev any) {
 		event, ok := ev.(*network.EventRequestWillBeSent)
 		if !ok || event.Request == nil {
@@ -231,6 +235,14 @@ func (c *Client) captureBrowserSession(ctx context.Context, cookieHeader string,
 		if len(headers) == 0 {
 			return
 		}
+		preferred := strings.Contains(requestURL, "/api/v2/chats/new") || strings.Contains(requestURL, "/api/v2/chat/completions")
+		captureMu.Lock()
+		if capturedHeaders == nil || preferred || !capturedPreferred {
+			capturedHeaders = headers
+			capturedSourceURL = requestURL
+			capturedPreferred = preferred
+		}
+		captureMu.Unlock()
 		select {
 		case headerCh <- headers:
 			sourceURLCh <- requestURL
@@ -246,6 +258,10 @@ func (c *Client) captureBrowserSession(ctx context.Context, cookieHeader string,
 		chromedp.Navigate(c.baseURL+"/"),
 		chromedp.Sleep(2*time.Second),
 		chromedp.Evaluate(`fetch("/api/v2/configs/", { credentials: "include" }).catch(() => null)`, nil),
+		chromedp.Navigate(c.baseURL+"/c/new-chat"),
+		chromedp.Sleep(2*time.Second),
+		chromedp.Evaluate(browserProbeScript(guest), nil),
+		chromedp.Sleep(2*time.Second),
 		chromedp.Sleep(2*time.Second),
 		browserCookieHeader(c.baseURL, &cookie, &names),
 	); err != nil {
@@ -254,6 +270,15 @@ func (c *Client) captureBrowserSession(ctx context.Context, cookieHeader string,
 
 	headers := http.Header{}
 	sourceURL := ""
+	captureMu.Lock()
+	if capturedHeaders != nil {
+		headers = capturedHeaders.Clone()
+		sourceURL = capturedSourceURL
+	}
+	captureMu.Unlock()
+	if len(headers) > 0 {
+		goto captured
+	}
 	select {
 	case headers = <-headerCh:
 		select {
@@ -263,6 +288,7 @@ func (c *Client) captureBrowserSession(ctx context.Context, cookieHeader string,
 	default:
 	}
 
+captured:
 	if strings.TrimSpace(cookie) == "" {
 		cookie = strings.TrimSpace(cookieHeader)
 		names = cookieNames(cookie)
@@ -292,6 +318,37 @@ func (c *Client) captureBrowserSession(ctx context.Context, cookieHeader string,
 		HasCookie:   strings.TrimSpace(cookie) != "",
 		CookieNames: names,
 	}, nil
+}
+
+func browserProbeScript(guest bool) string {
+	chatMode := "normal"
+	if guest {
+		chatMode = "guest"
+	}
+	return fmt.Sprintf(`Promise.resolve()
+  .then(() => fetch("/api/v2/users/status", {
+    method: "POST",
+    credentials: "include",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({typarms: {
+      typarm1: "web", typarm2: "", typarm3: "prod", typarm4: "qwen_chat", typarm5: "product", typarm6: "",
+      orgid: "tongyi", share_id: "", project_id: "", channel_type: "", community_type: "", from_id: "",
+      cdn_version: "0.2.68", spmId: "a2ty_o01.29997170", aemPageId: "//chat.qwen.ai/c/new-chat", domain: "chat.qwen.ai"
+    }})
+  }).catch(() => null))
+  .then(() => fetch("/api/v2/chats/new", {
+    method: "POST",
+    credentials: "include",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({
+      title: "新建对话",
+      models: ["qwen3.7-plus"],
+      chat_mode: %q,
+      chat_type: "t2t",
+      timestamp: Date.now(),
+      project_id: ""
+    })
+  }).catch(() => null));`, chatMode)
 }
 
 func (c *Client) browserExecutablePath() string {

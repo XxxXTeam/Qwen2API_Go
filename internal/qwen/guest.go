@@ -176,8 +176,138 @@ func (c *Client) guestBootstrapRequests(browserHeaders, apiHeaders http.Header) 
 	if parsed, err := url.Parse(c.baseURL); err == nil {
 		domain = parsed.Host
 	}
-	nowMs := time.Now().UnixMilli()
-	beaconPayload := map[string]any{
+	beaconHeaders := apiHeaders.Clone()
+	beaconHeaders.Del("Version")
+	beaconHeaders.Del("Source")
+	beaconHeaders.Del("Timezone")
+	beaconHeaders.Set("Content-Type", "text/plain;charset=UTF-8")
+	beaconHeaders.Set("Priority", "u=6")
+
+	return []guestBootstrapRequest{
+		{method: http.MethodGet, url: c.baseURL + "/", headers: browserHeaders, timeout: guestBootstrapHomeTimeout},
+		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
+		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/setting-config", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
+		{method: http.MethodPost, url: c.baseURL + "/api/v2/users/status", headers: beaconHeaders, body: guestBeaconStatusPayload(domain), timeout: guestBootstrapAPITimeout},
+		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/setting-config", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
+		{method: http.MethodGet, url: c.baseURL + "/api/v2/tts/config?omni_speakers=v1&audio_tts_speakers=v1&omni_language=v1&audio_tts_language=v1", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
+		{method: http.MethodGet, url: c.baseURL + "/api/v1/auths/", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
+		{method: http.MethodPost, url: c.baseURL + "/api/v2/users/status", headers: apiHeaders, body: guestStatusPayload(domain, "/", "a2ty_o01.29997169"), timeout: guestBootstrapAPITimeout},
+	}
+}
+
+func (c *Client) warmGuestNewChat(ctx context.Context) {
+	c.warmGuestRoute(ctx, "/c/new-chat", "a2ty_o01.29997170", true)
+}
+
+func (c *Client) warmGuestAfterNewChat(ctx context.Context) {
+	c.warmGuestSettingConfig(ctx, "/c/new-chat")
+	c.warmGuestRoute(ctx, "/c/guest", "a2ty_o01.29997172", false)
+}
+
+func (c *Client) warmGuestSettingConfig(ctx context.Context, refererPath string) {
+	headers := c.guestAPIHeaders(refererPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/configs/setting-config", nil)
+	if err != nil {
+		return
+	}
+	req.Header = headers
+	if cookieHeader, err := c.buildCookieHeader(ctx, "", cookieOptions{includeGuestBootstrap: true}); err == nil {
+		req.Header.Set("Cookie", cookieHeader)
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.DebugModule("UPSTREAM", "guest setting-config warmup skipped referer=%s err=%v", refererPath, err)
+		}
+		return
+	}
+	resp.Body.Close()
+}
+
+func (c *Client) warmGuestRoute(ctx context.Context, refererPath, spmID string, withPriority bool) {
+	domain := ""
+	if parsed, err := url.Parse(c.baseURL); err == nil {
+		domain = parsed.Host
+	}
+	headers := c.guestAPIHeaders(refererPath)
+	if withPriority {
+		headers.Set("Priority", "u=0")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v2/users/status", bytes.NewReader(mustJSON(guestStatusPayload(domain, refererPath, spmID))))
+	if err != nil {
+		return
+	}
+	req.Header = headers
+	if cookieHeader, err := c.buildCookieHeader(ctx, "", cookieOptions{includeGuestBootstrap: true}); err == nil {
+		req.Header.Set("Cookie", cookieHeader)
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.DebugModule("UPSTREAM", "guest route warmup skipped referer=%s err=%v", refererPath, err)
+		}
+		return
+	}
+	resp.Body.Close()
+}
+
+func (c *Client) guestAPIHeaders(refererPath string) http.Header {
+	fp := guestRequestFingerprint()
+	headers := http.Header{
+		"User-Agent":                  []string{fp.UserAgent},
+		"Accept":                      []string{"application/json, text/plain, */*"},
+		"Accept-Language":             []string{fp.AcceptLanguage},
+		"Accept-Encoding":             []string{fp.AcceptEncoding},
+		"Connection":                  []string{"keep-alive"},
+		"Version":                     []string{qwenWebVersion},
+		"bx-v":                        []string{qwenBxVersion},
+		"Source":                      []string{"web"},
+		"Timezone":                    []string{fp.Timezone},
+		"sec-ch-ua":                   []string{fp.SecChUA},
+		"sec-ch-ua-full-version":      []string{fp.SecChUAFullVersion},
+		"sec-ch-ua-full-version-list": []string{fp.SecChUAFullVersionList},
+		"sec-ch-ua-platform":          []string{fp.SecChUAPlatform},
+		"sec-ch-ua-platform-version":  []string{fp.SecChUAPlatformVersion},
+		"sec-ch-ua-mobile":            []string{fp.SecChUAMobile},
+		"sec-ch-ua-arch":              []string{fp.SecChUAArch},
+		"sec-ch-ua-bitness":           []string{fp.SecChUABitness},
+		"Origin":                      []string{c.baseURL},
+		"Referer":                     []string{c.baseURL + refererPath},
+		"Sec-Fetch-Site":              []string{"same-origin"},
+		"Sec-Fetch-Mode":              []string{"cors"},
+		"Sec-Fetch-Dest":              []string{"empty"},
+		"Cache-Control":               []string{fp.CacheControl},
+		"Pragma":                      []string{fp.Pragma},
+		"Content-Type":                []string{"application/json"},
+		"X-Request-Id":                []string{newRequestID()},
+		"DNT":                         []string{fp.DNT},
+	}
+	return headers
+}
+
+func guestBeaconStatusPayload(domain string) map[string]any {
+	return map[string]any{
+		"typarms": map[string]any{
+			"logId":       randomHex(40),
+			"timestamp":   time.Now().UnixMilli(),
+			"domain":      domain,
+			"testTag":     "compareLogService",
+			"testVersion": "5.0.0",
+			"serviceName": "tongyiLogService",
+			"requestType": "sendBeacon",
+		},
+	}
+}
+
+func guestStatusPayload(domain, pagePath, spmID string) map[string]any {
+	if strings.TrimSpace(pagePath) == "" {
+		pagePath = "/"
+	}
+	aemPageID := "//" + domain + pagePath
+	if pagePath == "/" {
+		aemPageID = "//" + domain + "/"
+	}
+	return map[string]any{
 		"typarms": map[string]any{
 			"typarm1":        "web",
 			"typarm2":        "",
@@ -192,20 +322,19 @@ func (c *Client) guestBootstrapRequests(browserHeaders, apiHeaders http.Header) 
 			"community_type": "",
 			"from_id":        "",
 			"cdn_version":    qwenWebVersion,
-			"spmId":          "a2ty_o01.29997169",
-			"aemPageId":      "//" + domain + "/",
+			"spmId":          spmID,
+			"aemPageId":      aemPageID,
 			"domain":         domain,
-			"timestamp":      nowMs,
 		},
 	}
-	return []guestBootstrapRequest{
-		{method: http.MethodGet, url: c.baseURL + "/", headers: browserHeaders, timeout: guestBootstrapHomeTimeout},
-		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
-		{method: http.MethodGet, url: c.baseURL + "/api/v2/configs/setting-config", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
-		{method: http.MethodGet, url: c.baseURL + "/api/v2/tts/config?omni_speakers=v1&audio_tts_speakers=v1&omni_language=v1&audio_tts_language=v1", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
-		{method: http.MethodPost, url: c.baseURL + "/api/v2/users/status", headers: apiHeaders, body: beaconPayload, timeout: guestBootstrapAPITimeout},
-		{method: http.MethodGet, url: c.baseURL + "/api/v1/auths/", headers: apiHeaders, timeout: guestBootstrapAPITimeout},
+}
+
+func mustJSON(value any) []byte {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return []byte("{}")
 	}
+	return raw
 }
 
 func (c *Client) bootstrapHTTPClient(jar http.CookieJar) *http.Client {
@@ -367,6 +496,42 @@ func formatCookieMap(cookies map[string]string) string {
 	return strings.Join(parts, "; ")
 }
 
+func (c *Client) rememberAnonymousResponse(req *http.Request, resp *http.Response) {
+	if req == nil || resp == nil || !isAnonymousRequest(req) {
+		return
+	}
+	cookies := map[string]string{}
+
+	c.guestMu.RLock()
+	mergeCookieHeader(cookies, c.guestAuth.cookieHeader)
+	c.guestMu.RUnlock()
+
+	for _, cookie := range resp.Cookies() {
+		if cookie == nil {
+			continue
+		}
+		name := strings.TrimSpace(cookie.Name)
+		value := strings.TrimSpace(cookie.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		cookies[name] = value
+	}
+	if region := strings.TrimSpace(resp.Header.Get("ga-ap")); region != "" {
+		cookies["x-ap"] = region
+	}
+	if len(cookies) == 0 {
+		return
+	}
+	fillGuestCookieDefaults(cookies)
+	header := formatCookieMap(cookies)
+	if header == "" {
+		return
+	}
+	c.setGuestCookieHeader(header)
+	c.setGuestBrowserSessionCookie(header)
+}
+
 func mergeCookieHeader(cookies map[string]string, header string) {
 	if cookies == nil {
 		return
@@ -387,6 +552,23 @@ func mergeCookieHeader(cookies map[string]string, header string) {
 		}
 		cookies[name] = value
 	}
+}
+
+func (c *Client) setGuestBrowserSessionCookie(cookieHeader string) {
+	if strings.TrimSpace(cookieHeader) == "" {
+		return
+	}
+	c.browserSessions.mu.Lock()
+	defer c.browserSessions.mu.Unlock()
+	if c.browserSessions.guest == nil {
+		return
+	}
+	copy := cloneBrowserSession(c.browserSessions.guest)
+	copy.Cookie = cookieHeader
+	copy.CookieNames = cookieNames(cookieHeader)
+	copy.HasCookie = true
+	copy.CapturedAt = time.Now()
+	c.browserSessions.guest = &copy
 }
 
 func randomAlphaNumeric(length int) string {

@@ -171,3 +171,39 @@ func TestInitializeRestoresPersistedBrowserSession(t *testing.T) {
 		t.Fatalf("expected restored guest cookie state, got %#v", guest)
 	}
 }
+
+func TestInitializePreservesStoredAccountsWhenValidationFails(t *testing.T) {
+	server := newGuestBootstrapServer()
+	defer server.Close()
+
+	original := storage.Account{
+		Email:   "stale@example.com",
+		Token:   "invalid-token",
+		Cookie:  "token=invalid-token",
+		Expires: 0,
+	}
+	store := &stubAccountStore{
+		accounts: []storage.Account{original},
+	}
+	client := qwen.NewClient(config.Config{
+		QwenChatProxyURL:   server.URL,
+		BrowserAuthEnabled: false,
+	}, logging.New(false))
+	service := NewService(config.Config{DataSaveMode: "file"}, config.NewRuntime(config.Config{}), store, client, logging.New(false))
+
+	if err := service.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	if len(store.accounts) != 1 {
+		t.Fatalf("stored accounts len = %d, want 1", len(store.accounts))
+	}
+	if store.accounts[0].Email != original.Email {
+		t.Fatalf("stored account email = %q, want %q", store.accounts[0].Email, original.Email)
+	}
+
+	accounts := service.Accounts()
+	if len(accounts) != 1 || !accounts[0].IsGuest() {
+		t.Fatalf("expected runtime guest fallback after failed validation, got %#v", accounts)
+	}
+}

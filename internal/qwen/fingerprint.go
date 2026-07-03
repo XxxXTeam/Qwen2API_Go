@@ -174,10 +174,10 @@ func guestRequestFingerprint() requestFingerprint {
 		SecChUABitness:         `"64"`,
 		AcceptLanguage:         "zh-CN,zh;q=0.9",
 		Timezone:               time.Now().Format("Mon Jan 02 2006 15:04:05 GMT-0700"),
-		AcceptEncoding:         "gzip, deflate, br",
+		AcceptEncoding:         "gzip, deflate",
 		CacheControl:           "no-cache",
 		Pragma:                 "no-cache",
-		Priority:               "u=1, i",
+		Priority:               "u=0",
 		DNT:                    "0",
 	}
 }
