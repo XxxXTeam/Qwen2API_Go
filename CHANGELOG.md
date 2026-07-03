@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v1.0.0...v1.1.0) (2026-07-03)
+
+
+### Features
+
+* capture browser sessions for accounts and automate releases ([945c9af](https://github.com/XxxXTeam/Qwen2API_Go/commit/945c9afc25995e6bda02d62eaf5a780411d0a940))
+
+
+### Bug Fixes
+
+* preserve string tool arguments for write/edit ([ec5d68c](https://github.com/XxxXTeam/Qwen2API_Go/commit/ec5d68c87ccdcb0d164e10276740fae9aba44a33))
+* preserve string tool arguments for write/edit ([05c9208](https://github.com/XxxXTeam/Qwen2API_Go/commit/05c92083a3344e7bd253572483b7b23fd78e33e0))
+* stabilize guest and account chat sessions ([c566871](https://github.com/XxxXTeam/Qwen2API_Go/commit/c56687131141d93dda1e2d212ac57100ec148095))
+* toolcall result ([37b2d04](https://github.com/XxxXTeam/Qwen2API_Go/commit/37b2d04b1e2624c646b5646fcaf3d040ff4e28e0))
+* 优化Redis链接 ([de0146a](https://github.com/XxxXTeam/Qwen2API_Go/commit/de0146ac74d26382984a275e3c9ff0b701f34386))
+* 修复亿点点小Buuuuuuuug ([f884469](https://github.com/XxxXTeam/Qwen2API_Go/commit/f884469601c6922d8cb5414874f71793c3e8960c))
+* 错误修复 ([3565d89](https://github.com/XxxXTeam/Qwen2API_Go/commit/3565d89f637fcc28cc9e0d7f63f1dfde390d58e4))
+
 ## [1.0.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v0.6.0...v1.0.0) (2026-05-22)
 
 
