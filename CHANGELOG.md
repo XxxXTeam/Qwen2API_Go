@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/XxxXTeam/Qwen2API_Go/compare/v1.1.0...v1.1.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* align docker go version with go.mod ([a106f88](https://github.com/XxxXTeam/Qwen2API_Go/commit/a106f889bdb3a76c7534c4cc05d361a244af9b4a))
+
 ## [1.1.0](https://github.com/XxxXTeam/Qwen2API_Go/compare/v1.0.0...v1.1.0) (2026-07-03)
 
 
